@@ -1,0 +1,169 @@
+name: Targeting Service CI/CD
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: togglemaster-targeting
+
+jobs:
+  ci:
+    name: Build, Test and Security
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      - name: Install application dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install CI security tools and test runner
+        run: |
+          pip install pytest ruff pip-audit bandit
+
+      - name: Syntax check
+        run: python -m py_compile app.py
+
+      - name: Unit tests
+        run: python -m pytest -v
+
+      - name: Lint - Ruff
+        run: ruff check .
+
+      - name: SCA - pip-audit
+        run: pip-audit -r requirements.txt
+
+      - name: SAST - Bandit
+        run: bandit -r . -x ./.git,./tests
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t ${{ env.ECR_REPOSITORY }}:${{ github.sha }} \
+            .
+
+      - name: Trivy container scan
+        uses: aquasecurity/trivy-action@v0.35.0
+        with:
+          image-ref: '${{ env.ECR_REPOSITORY }}:${{ github.sha }}'
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL'
+
+  publish:
+    name: Publish image to ECR
+    runs-on: ubuntu-latest
+    needs: ci
+
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials with OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::921017758649:role/togglemaster-github-actions-role
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build \
+            -t $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG \
+            .
+
+          docker push \
+            $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG
+
+  update-gitops:
+    name: Update GitOps repository
+    runs-on: ubuntu-latest
+    needs: publish
+
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout GitOps repository
+        uses: actions/checkout@v4
+        with:
+          repository: DaviSouza28/togglemaster-gitops
+          token: ${{ secrets.GITOPS_TOKEN }}
+          path: gitops
+
+      - name: Update Targeting image tag
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import os
+          import re
+
+          path = Path("gitops/apps/togglemaster/targeting.yaml")
+          text = path.read_text(encoding="utf-8")
+
+          image = (
+              "921017758649.dkr.ecr.us-east-1.amazonaws.com/"
+              f"togglemaster-targeting:{os.environ['IMAGE_TAG']}"
+          )
+
+          updated, count = re.subn(
+              r"921017758649\.dkr\.ecr\.us-east-1\.amazonaws\.com/togglemaster-targeting:[^\s]+",
+              image,
+              text,
+              count=1,
+          )
+
+          if count != 1:
+              raise SystemExit("Targeting image reference was not updated")
+
+          path.write_text(updated, encoding="utf-8")
+          PY
+
+      - name: Commit and push GitOps change
+        working-directory: gitops
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add apps/togglemaster/targeting.yaml
+
+          if git diff --cached --quiet; then
+            echo "GitOps manifest already uses $IMAGE_TAG"
+            exit 0
+          fi
+
+          git commit -m "deploy(targeting): $IMAGE_TAG"
+          git push
+
