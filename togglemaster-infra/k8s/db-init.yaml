@@ -18,5 +18,5 @@ spec:
 
       containers:
         - name: db-init
-          image: 921017758649.dkr.ecr.us-east-1.amazonaws.com/togglemaster-db-init:v3
+          image: 199584041184.dkr.ecr.us-east-1.amazonaws.com/togglemaster-db-init:v1
           imagePullPolicy: Always

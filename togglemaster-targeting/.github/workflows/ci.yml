@@ -85,7 +85,7 @@ jobs:
       - name: Configure AWS credentials with OIDC
         uses: aws-actions/configure-aws-credentials@v6
         with:
-          role-to-assume: arn:aws:iam::921017758649:role/togglemaster-github-actions-role
+          role-to-assume: arn:aws:iam::199584041184:role/togglemaster-github-actions-role
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
@@ -132,12 +132,12 @@ jobs:
           text = path.read_text(encoding="utf-8")
 
           image = (
-              "921017758649.dkr.ecr.us-east-1.amazonaws.com/"
+              "199584041184.dkr.ecr.us-east-1.amazonaws.com/"
               f"togglemaster-targeting:{os.environ['IMAGE_TAG']}"
           )
 
           updated, count = re.subn(
-              r"921017758649\.dkr\.ecr\.us-east-1\.amazonaws\.com/togglemaster-targeting:[^\s]+",
+              r"199584041184\.dkr\.ecr\.us-east-1\.amazonaws\.com/togglemaster-targeting:[^\s]+",
               image,
               text,
               count=1,

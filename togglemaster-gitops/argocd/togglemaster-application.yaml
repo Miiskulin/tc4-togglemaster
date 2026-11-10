@@ -1,4 +1,4 @@
-﻿apiVersion: argoproj.io/v1alpha1
+apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: togglemaster
@@ -7,9 +7,9 @@ spec:
   project: default
 
   source:
-    repoURL: https://github.com/DaviSouza28/togglemaster-gitops.git
+    repoURL: https://github.com/Miiskulin/tc4-togglemaster.git
     targetRevision: main
-    path: apps/togglemaster
+    path: togglemaster-gitops/apps/togglemaster
 
   destination:
     server: https://kubernetes.default.svc

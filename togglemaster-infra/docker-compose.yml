@@ -11,7 +11,7 @@ services:
       - "5432:5432"
     volumes:
       - auth-db-data:/var/lib/postgresql/data
-      - ./auth-service/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ../togglemaster-auth/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U auth_user -d auth_db"]
       interval: 5s
@@ -29,7 +29,7 @@ services:
       - "5433:5432"
     volumes:
       - flag-db-data:/var/lib/postgresql/data
-      - ./flag-service/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ../togglemaster-flag/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U flag_user -d flags_db"]
       interval: 5s
@@ -47,7 +47,7 @@ services:
       - "5434:5432"
     volumes:
       - targeting-db-data:/var/lib/postgresql/data
-      - ./targeting-service/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ../togglemaster-targeting/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U targeting_user -d targeting_db"]
       interval: 5s
@@ -116,7 +116,8 @@ services:
       REDIS_URL: redis://redis:6379
       FLAG_SERVICE_URL: http://flag-service:8002
       TARGETING_SERVICE_URL: http://targeting-service:8003
-      SERVICE_API_KEY: "tm_key_41e9b9bbc71101da2d2fde4a08d90beb1c72fc191255fb94cfefc1178457c080"
+      # Gere com: curl -X POST localhost:8001/admin/keys -H "Authorization: Bearer local-master-key" -d '{"name":"evaluation"}'
+      SERVICE_API_KEY: "${SERVICE_API_KEY:-}"
       AWS_REGION: us-east-1
     ports:
       - "8004:8004"

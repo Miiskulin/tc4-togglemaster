@@ -41,11 +41,7 @@ data "aws_iam_policy_document" "github_actions_assume_role" {
       variable = "token.actions.githubusercontent.com:sub"
 
       values = [
-        "repo:DaviSouza28@59304635/togglemaster-auth@1357325627:ref:refs/heads/main",
-        "repo:DaviSouza28@59304635/togglemaster-flag@1357325692:ref:refs/heads/main",
-        "repo:DaviSouza28@59304635/togglemaster-targeting@1357325736:ref:refs/heads/main",
-        "repo:DaviSouza28@59304635/togglemaster-evaluation@1357325790:ref:refs/heads/main",
-        "repo:DaviSouza28@59304635/togglemaster-analytics@1357326030:ref:refs/heads/main"
+        "repo:${var.github_repository}:ref:refs/heads/${var.github_branch}"
       ]
     }
   }
@@ -109,4 +105,38 @@ resource "aws_iam_policy" "github_actions_ecr" {
 resource "aws_iam_role_policy_attachment" "github_actions_ecr" {
   role       = aws_iam_role.github_actions.name
   policy_arn = aws_iam_policy.github_actions_ecr.arn
+}
+
+# ============================================================
+# POLICY - GITHUB ACTIONS / EKS (Self-Healing da Fase 4)
+# Permite ao workflow de self-healing montar o kubeconfig
+# (`aws eks update-kubeconfig`) antes do rollout restart.
+# O acesso dentro do cluster e concedido por um EKS Access
+# Entry no modulo eks, limitado ao namespace togglemaster.
+# ============================================================
+
+resource "aws_iam_policy" "github_actions_eks" {
+  name        = "togglemaster-github-actions-eks-policy"
+  description = "Permite que GitHub Actions descreva o cluster EKS para o self-healing"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+
+    Statement = [
+      {
+        Effect = "Allow"
+
+        Action = [
+          "eks:DescribeCluster"
+        ]
+
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "github_actions_eks" {
+  role       = aws_iam_role.github_actions.name
+  policy_arn = aws_iam_policy.github_actions_eks.arn
 }

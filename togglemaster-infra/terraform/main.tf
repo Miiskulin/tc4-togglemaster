@@ -16,6 +16,9 @@ module "iam" {
   auth_db_secret_arn      = module.data_services.auth_db_secret_arn
   flag_db_secret_arn      = module.data_services.flag_db_secret_arn
   targeting_db_secret_arn = module.data_services.targeting_db_secret_arn
+
+  github_repository = var.github_repository
+  github_branch     = var.github_branch
 }
 
 module "eks" {
@@ -29,7 +32,8 @@ module "eks" {
   analytics_workload_role_arn  = module.iam.analytics_workload_role_arn
   db_init_workload_role_arn    = module.iam.db_init_workload_role_arn
 
-  admin_principal_arn = var.eks_admin_principal_arn
+  admin_principal_arn     = var.eks_admin_principal_arn
+  github_actions_role_arn = module.iam.github_actions_role_arn
 }
 
 module "data_services" {

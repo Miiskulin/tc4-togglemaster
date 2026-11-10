@@ -1,8 +1,9 @@
 terraform {
   backend "s3" {
-    bucket  = "davi-laboratorio-terraform-2026"
-    key     = "fase-3/terraform.tfstate"
-    region  = "us-east-1"
-    profile = "terraform"
+    bucket = "tc4-togglemaster-tfstate-199584041184"
+    key    = "fase-4/terraform.tfstate"
+    region = "us-east-1"
+
+    use_lockfile = true
   }
 }

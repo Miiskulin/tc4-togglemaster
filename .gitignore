@@ -1,0 +1,69 @@
+# =========================================================
+# ToggleMaster - monorepo
+# =========================================================
+
+# ---------------------------------------------------------
+# Material do curso
+# ---------------------------------------------------------
+# Os PDFs do enunciado sao material da FIAP, nao do projeto.
+# Ficam locais: quem clona o repo nao precisa deles, e nao cabe
+# redistribuir. Para versionar de novo, remova esta linha.
+docs/
+
+# ---------------------------------------------------------
+# Terraform (reforco - ha um .gitignore proprio em
+# togglemaster-infra/ com as regras completas)
+# ---------------------------------------------------------
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+
+# ---------------------------------------------------------
+# Segredos
+# ---------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+kubeconfig
+kubeconfig.*
+.kube/
+
+# ---------------------------------------------------------
+# Python
+# ---------------------------------------------------------
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+.coverage
+coverage.xml
+htmlcov/
+
+# ---------------------------------------------------------
+# Go
+# ---------------------------------------------------------
+bin/
+*.test
+coverage.out
+
+# ---------------------------------------------------------
+# IDE / OS / logs
+# ---------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+*.log

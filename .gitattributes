@@ -1,0 +1,24 @@
+# ---------------------------------------------------------------
+# Fim de linha
+# ---------------------------------------------------------------
+# Com core.autocrlf=true (o default do Git for Windows), o checkout
+# entrega CRLF. Para um arquivo que vai rodar DENTRO de um container
+# Linux isso quebra de formas que a mensagem de erro nao explica:
+#
+#   entrypoint.sh com "#!/bin/sh\r"  ->
+#     exec /usr/local/bin/entrypoint.sh: no such file or directory
+#
+# O arquivo existe. O que nao existe e um interpretador chamado
+# "/bin/sh\r". Forcar LF nestes tipos resolve na origem, para
+# qualquer pessoa que clonar o repo em qualquer sistema.
+
+*.sh        text eol=lf
+*.sql       text eol=lf
+*.yaml      text eol=lf
+*.yml       text eol=lf
+Dockerfile  text eol=lf
+*.Dockerfile text eol=lf
+Makefile    text eol=lf
+
+# Scripts de PowerShell sao usados no Windows: CRLF e o natural.
+*.ps1       text eol=crlf

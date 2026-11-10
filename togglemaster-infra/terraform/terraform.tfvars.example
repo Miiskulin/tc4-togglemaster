@@ -1,0 +1,45 @@
+# Copie para terraform.tfvars e preencha.
+# terraform.tfvars esta no .gitignore e NAO deve ser commitado.
+
+# ---------------------------------------------------------------
+# Senhas dos bancos RDS
+# ---------------------------------------------------------------
+# Duas restricoes se somam aqui, e ignorar qualquer uma delas custa
+# tempo porque o erro aponta para o lugar errado:
+#
+# 1. O RDS PostgreSQL recusa / @ " e espaco.
+#    Sintoma: InvalidParameterValue no apply, a instancia nem e criada.
+#
+# 2. A senha vai dentro de uma URI (postgres://user:SENHA@host/db).
+#    Ali # abre fragmento, % abre escape, ? abre query e : separa
+#    usuario de senha. A senha chega TRUNCADA no banco.
+#    Sintoma: "password authentication failed" - e voce vai procurar
+#    em security group e subnet, que nao sao a causa.
+#
+# O jeito seguro e usar so os caracteres "unreserved" da RFC 3986,
+# que nunca precisam de encode em URI nenhuma:
+#
+#    A-Z a-z 0-9 - _ . ~
+#
+# Gerar uma de 28 caracteres (PowerShell):
+#   -join ((1..28) | % { "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.~"[(Get-Random -Max 65)] })
+
+auth_db_password      = "TROQUE-ME-auth-123"
+flag_db_password      = "TROQUE-ME-flag-123"
+targeting_db_password = "TROQUE-ME-targeting-123"
+
+# ---------------------------------------------------------------
+# Acesso ao cluster
+# ---------------------------------------------------------------
+# ARN do usuario IAM que roda o Terraform e usara o kubectl.
+# Descubra com: aws sts get-caller-identity --query Arn --output text
+eks_admin_principal_arn = "arn:aws:iam::SEU_ACCOUNT_ID:user/terraform-admin"
+
+# ---------------------------------------------------------------
+# OIDC do GitHub Actions
+# ---------------------------------------------------------------
+# Monorepo autorizado a assumir a role (ja tem default correto no
+# variables.tf). O par repo+branch E o controle de acesso: trocar por
+# um padrao mais largo, como :*, autoriza qualquer branch.
+# github_repository = "Miiskulin/tc4-togglemaster"
+# github_branch     = "main"

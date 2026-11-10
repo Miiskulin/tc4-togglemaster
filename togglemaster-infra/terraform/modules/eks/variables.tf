@@ -32,3 +32,8 @@ variable "admin_principal_arn" {
   description = "ARN do principal IAM com acesso administrativo ao cluster EKS"
   type        = string
 }
+
+variable "github_actions_role_arn" {
+  description = "ARN da IAM Role do GitHub Actions, usada pelo workflow de self-healing"
+  type        = string
+}

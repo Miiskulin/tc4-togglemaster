@@ -16,7 +16,7 @@ spec:
       serviceAccountName: analytics-service
       containers:
         - name: analytics-service
-          image: 921017758649.dkr.ecr.us-east-1.amazonaws.com/togglemaster-analytics:podidentity-fix
+          image: 199584041184.dkr.ecr.us-east-1.amazonaws.com/togglemaster-analytics:v1
           imagePullPolicy: Always
           ports:
             - containerPort: 8005
@@ -26,7 +26,7 @@ spec:
             - name: AWS_REGION
               value: "us-east-1"
             - name: AWS_SQS_URL
-              value: "https://sqs.us-east-1.amazonaws.com/921017758649/togglemaster-analytics"
+              value: "https://sqs.us-east-1.amazonaws.com/199584041184/togglemaster-analytics"
             - name: AWS_DYNAMODB_TABLE
               value: "ToggleMasterAnalytics"
           readinessProbe:
