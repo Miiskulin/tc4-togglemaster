@@ -1,0 +1,194 @@
+name: Auth Service CI/CD
+
+# Monorepo: este workflow so roda quando o codigo deste servico muda.
+# Sem o filtro de paths, qualquer commit disparava os cinco pipelines.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'togglemaster-auth/**'
+      - '.github/workflows/ci-auth.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'togglemaster-auth/**'
+      - '.github/workflows/ci-auth.yml'
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: togglemaster-auth
+  SERVICE_DIR: togglemaster-auth
+
+jobs:
+  ci:
+    name: Build, Test and Security
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    # Todo `run` deste job executa dentro da pasta do servico.
+    defaults:
+      run:
+        working-directory: togglemaster-auth
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # go-version-file e input de action, nao comando de shell: o
+      # working-directory nao se aplica, por isso o caminho completo.
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: togglemaster-auth/go.mod
+          cache: true
+          cache-dependency-path: togglemaster-auth/go.sum
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Verify dependencies
+        run: go mod verify
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Build
+        run: go build -v ./...
+
+      - name: Lint - go vet
+        run: go vet ./...
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: SCA - govulncheck
+        run: govulncheck ./...
+
+      - name: Install gosec
+        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+
+      - name: SAST - gosec
+        run: gosec ./...
+
+      - name: Build Docker image
+        run: docker build -t ${{ env.ECR_REPOSITORY }}:${{ github.sha }} .
+
+      - name: Trivy container scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: '${{ env.ECR_REPOSITORY }}:${{ github.sha }}'
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL'
+
+  publish:
+    name: Publish image to ECR
+    runs-on: ubuntu-latest
+    needs: ci
+    if: github.event_name != 'pull_request'
+
+    permissions:
+      contents: read
+      id-token: write
+
+    defaults:
+      run:
+        working-directory: togglemaster-auth
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Sem chave de acesso: a role e assumida via OIDC, e a trust
+      # policy so aceita este repositorio nesta branch.
+      - name: Configure AWS credentials with OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::199584041184:role/togglemaster-github-actions-role
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t "$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG" .
+          docker push "$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG"
+
+  update-gitops:
+    name: Update GitOps manifest
+    runs-on: ubuntu-latest
+    needs: publish
+    if: github.event_name != 'pull_request'
+
+    permissions:
+      contents: write
+
+    # Os 5 workflows commitam no mesmo arquivo de branch. Sem isto,
+    # dois rodando juntos colidem no push. O grupo serializa entre
+    # workflows diferentes; cancel-in-progress: false para nenhum
+    # deploy ser descartado.
+    concurrency:
+      group: gitops-main
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Update image tag
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+          MANIFEST: togglemaster-gitops/apps/togglemaster/auth.yaml
+        run: |
+          set -euo pipefail
+
+          antes=$(grep -c "199584041184.dkr.ecr.us-east-1.amazonaws.com/togglemaster-auth:" "$MANIFEST" || true)
+          if [ "$antes" -ne 1 ]; then
+            echo "Esperava 1 referencia de imagem em $MANIFEST, achei $antes"
+            exit 1
+          fi
+
+          sed -i -E "s|(199584041184.dkr.ecr.us-east-1.amazonaws.com/togglemaster-auth):[^[:space:]\"']+|\1:$IMAGE_TAG|" "$MANIFEST"
+
+          grep -q "199584041184.dkr.ecr.us-east-1.amazonaws.com/togglemaster-auth:$IMAGE_TAG" "$MANIFEST"             || { echo "A substituicao nao aplicou"; exit 1; }
+
+      - name: Commit and push
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add togglemaster-gitops/apps/togglemaster/auth.yaml
+
+          if git diff --cached --quiet; then
+            echo "O manifesto ja aponta para $IMAGE_TAG"
+            exit 0
+          fi
+
+          git commit -m "deploy(auth): $IMAGE_TAG"
+
+          # Outro workflow pode ter commitado entre o checkout e agora.
+          for tentativa in 1 2 3 4 5; do
+            if git push; then
+              echo "push ok na tentativa $tentativa"
+              exit 0
+            fi
+            echo "push recusado, rebase e nova tentativa ($tentativa)"
+            git pull --rebase --autostash origin main
+          done
+
+          echo "Nao consegui empurrar depois de 5 tentativas"
+          exit 1
