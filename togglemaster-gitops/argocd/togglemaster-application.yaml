@@ -7,7 +7,7 @@ spec:
   project: default
 
   source:
-    repoURL: https://github.com/Miiskulin/tc4-togglemaster.git
+    repoURL: git@github.com:Miiskulin/tc4-togglemaster.git
     targetRevision: main
     path: togglemaster-gitops/apps/togglemaster
 

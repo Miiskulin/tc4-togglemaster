@@ -1,0 +1,61 @@
+# Valores do chart argo/argo-cd (versao fixada no comando de install).
+#
+# Enxuto de proposito: o cluster tem 2 nos t3.large e ainda precisa
+# acomodar a stack de observabilidade da Fase 4 (Prometheus, Loki,
+# Grafana e o Collector do OpenTelemetry).
+
+configs:
+  params:
+    # Sem TLS no servidor. O acesso e exclusivamente por
+    # `kubectl port-forward`, entao nao ha trafego de rede exposto.
+    # Com TLS ligado e port-forward, o navegador entra em laco de
+    # redirecionamento - e um erro comum e confuso.
+    server.insecure: true
+
+# ---------------------------------------------------------------
+# Componentes desligados
+# ---------------------------------------------------------------
+
+dex:
+  # SSO (GitHub, Google, OIDC). Aqui o login e o usuario admin local.
+  enabled: false
+
+notifications:
+  # Notificacao de evento de sync para Slack e afins. Na Fase 4 o
+  # alerta vem do Grafana, nao daqui.
+  enabled: false
+
+applicationSet:
+  # Gera Application em lote a partir de template ou de uma lista.
+  # So existe uma Application neste projeto.
+  enabled: false
+
+# ---------------------------------------------------------------
+# Requests modestos
+# ---------------------------------------------------------------
+# Sem requests o scheduler nao tem como reservar espaco, e o primeiro
+# pod de observabilidade a subir pode empurrar o ArgoCD para Pending.
+
+controller:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+server:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+
+repoServer:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+
+redis:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi

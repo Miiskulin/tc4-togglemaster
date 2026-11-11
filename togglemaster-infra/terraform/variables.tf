@@ -32,3 +32,30 @@ variable "github_branch" {
   type        = string
   default     = "main"
 }
+# ---------------------------------------------------------------
+# Identificadores imutaveis do GitHub (claim sub do OIDC)
+# ---------------------------------------------------------------
+
+variable "github_owner" {
+  description = "Login do dono do repositorio"
+  type        = string
+  default     = "Miiskulin"
+}
+
+variable "github_owner_id" {
+  description = "ID numerico imutavel do dono"
+  type        = string
+  default     = "105600526"
+}
+
+variable "github_repo_name" {
+  description = "Nome do repositorio, sem o dono"
+  type        = string
+  default     = "tc4-togglemaster"
+}
+
+variable "github_repo_id" {
+  description = "ID numerico imutavel do repositorio"
+  type        = string
+  default     = "1449794415"
+}

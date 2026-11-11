@@ -32,3 +32,29 @@ variable "github_branch" {
   description = "Branch autorizada a assumir a role via OIDC"
   type        = string
 }
+# ---------------------------------------------------------------
+# Identificadores imutaveis do GitHub
+# ---------------------------------------------------------------
+# O claim sub do OIDC traz login e nome acompanhados dos IDs
+# numericos. Descobrir com:
+#   gh api repos/<owner>/<repo> --jq '.owner.login, .owner.id, .name, .id'
+
+variable "github_owner" {
+  description = "Login do dono do repositorio (ex: Miiskulin)"
+  type        = string
+}
+
+variable "github_owner_id" {
+  description = "ID numerico imutavel do dono"
+  type        = string
+}
+
+variable "github_repo_name" {
+  description = "Nome do repositorio, sem o dono (ex: tc4-togglemaster)"
+  type        = string
+}
+
+variable "github_repo_id" {
+  description = "ID numerico imutavel do repositorio"
+  type        = string
+}

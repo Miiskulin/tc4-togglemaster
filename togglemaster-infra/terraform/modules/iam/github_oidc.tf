@@ -36,12 +36,19 @@ data "aws_iam_policy_document" "github_actions_assume_role" {
       ]
     }
 
+    # O GitHub inclui IDs numericos imutaveis no claim sub:
+    #   repo:<login>@<owner_id>/<repo>@<repo_id>:ref:refs/heads/<branch>
+    # Os IDs nao mudam se o repositorio ou a conta forem renomeados, o
+    # que impede alguem que registre o nome antigo de assumir a role.
+    # Os dois formatos ficam aceitos: com uma lista de values, o IAM
+    # avalia como OU.
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
 
       values = [
-        "repo:${var.github_repository}:ref:refs/heads/${var.github_branch}"
+        "repo:${var.github_repository}:ref:refs/heads/${var.github_branch}",
+        "repo:${var.github_owner}@${var.github_owner_id}/${var.github_repo_name}@${var.github_repo_id}:ref:refs/heads/${var.github_branch}",
       ]
     }
   }

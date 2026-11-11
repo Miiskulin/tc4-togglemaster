@@ -19,6 +19,11 @@ module "iam" {
 
   github_repository = var.github_repository
   github_branch     = var.github_branch
+
+  github_owner     = var.github_owner
+  github_owner_id  = var.github_owner_id
+  github_repo_name = var.github_repo_name
+  github_repo_id   = var.github_repo_id
 }
 
 module "eks" {
