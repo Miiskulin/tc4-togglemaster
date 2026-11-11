@@ -28,7 +28,12 @@ notifications:
 applicationSet:
   # Gera Application em lote a partir de template ou de uma lista.
   # So existe uma Application neste projeto.
-  enabled: false
+  #
+  # ATENCAO: este chart (10.17.1) nao tem applicationSet.enabled.
+  # Escrever `enabled: false` aqui nao da erro nem aviso - o Helm
+  # ignora chave de values que o chart nao conhece, em silencio.
+  # O jeito de nao rodar o controller e zerar as replicas.
+  replicas: 0
 
 # ---------------------------------------------------------------
 # Requests modestos

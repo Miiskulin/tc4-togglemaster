@@ -1,0 +1,194 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: otel-collector
+  namespace: argocd
+  annotations:
+    # Onda 2: Prometheus e Loki precisam existir antes, porque o
+    # Collector exporta para os dois.
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: default
+
+  source:
+    repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts
+    chart: opentelemetry-collector
+    targetRevision: 0.178.3
+
+    helm:
+      values: |
+        # ---------------------------------------------------------
+        # Forma de execucao
+        # ---------------------------------------------------------
+        # DaemonSet: uma instancia por no. Cada aplicacao manda
+        # telemetria para o Collector do SEU proprio no, via
+        # status.hostIP - sem salto de rede entre nos e sem ponto
+        # unico de falha.
+        mode: daemonset
+
+        image:
+          # A imagem `core` nao traz os componentes usados aqui:
+          # file_log, k8s_attributes, resourcedetection e kubeletstats
+          # so existem na distribuicao contrib.
+          repository: otel/opentelemetry-collector-contrib
+
+        # ---------------------------------------------------------
+        # Presets
+        # ---------------------------------------------------------
+        presets:
+          logsCollection:
+            # Monta /var/log/pods no pod e configura o receiver
+            # file_log. E assim que o log de TODOS os conteineres do
+            # cluster chega ao Loki, sem a aplicacao fazer nada.
+            enabled: true
+            includeCollectorLogs: false
+
+          kubernetesAttributes:
+            # Enriquece cada span, metrica e log com namespace, pod,
+            # deployment e no. Sem isso, o log chega sem identificacao
+            # de origem e o painel do Grafana nao consegue filtrar.
+            enabled: true
+            extractAllPodLabels: true
+
+          kubeletMetrics:
+            # CPU, memoria e rede por pod, lidos do kubelet. Alimenta
+            # o painel "uso de recursos do cluster".
+            enabled: true
+
+        # ---------------------------------------------------------
+        # A license key vem de Secret, nunca do Git
+        # ---------------------------------------------------------
+        extraEnvs:
+          - name: NEW_RELIC_LICENSE_KEY
+            valueFrom:
+              secretKeyRef:
+                name: newrelic-license
+                key: license-key
+
+        # ---------------------------------------------------------
+        # Portas
+        # ---------------------------------------------------------
+        ports:
+          otlp:
+            enabled: true
+            containerPort: 4317
+            servicePort: 4317
+            # hostPort e o que permite a aplicacao alcancar o
+            # Collector pelo IP do no.
+            hostPort: 4317
+            protocol: TCP
+          otlp-http:
+            enabled: true
+            containerPort: 4318
+            servicePort: 4318
+            hostPort: 4318
+            protocol: TCP
+          prometheus:
+            # Porta onde o Collector publica /metrics para o
+            # Prometheus raspar.
+            enabled: true
+            containerPort: 8889
+            servicePort: 8889
+            protocol: TCP
+
+        # ---------------------------------------------------------
+        # Configuracao do Collector
+        # ---------------------------------------------------------
+        config:
+          receivers:
+            otlp:
+              protocols:
+                grpc:
+                  endpoint: 0.0.0.0:4317
+                http:
+                  endpoint: 0.0.0.0:4318
+
+          processors:
+            # Primeiro na fila de propósito: corta a ingestao antes de
+            # o Collector estourar a memoria e ser morto pelo OOM
+            # killer, em vez de depois.
+            memory_limiter:
+              check_interval: 5s
+              limit_percentage: 80
+              spike_limit_percentage: 20
+
+            batch:
+              timeout: 10s
+              send_batch_size: 1024
+
+            resourcedetection:
+              detectors: [env, system]
+              system:
+                hostname_sources: [os]
+
+          exporters:
+            # APM comercial. O endpoint muda por regiao: esta conta e
+            # US. Em conta EU seria https://otlp.eu01.nr-data.net
+            otlp_http/newrelic:
+              endpoint: https://otlp.nr-data.net
+              headers:
+                api-key: ${env:NEW_RELIC_LICENSE_KEY}
+
+            # Loki aceita OTLP nativo desde a versao 3. Nao e preciso
+            # o exporter `loki`, que foi descontinuado.
+            otlp_http/loki:
+              endpoint: http://loki.observability.svc.cluster.local:3100/otlp
+
+            # Publica as metricas recebidas via OTLP num endpoint que
+            # o Prometheus raspa. E a ponte entre o modelo push do OTel
+            # e o modelo pull do Prometheus.
+            prometheus:
+              endpoint: 0.0.0.0:8889
+              resource_to_telemetry_conversion:
+                enabled: true
+
+          service:
+            pipelines:
+              traces:
+                receivers: [otlp]
+                processors: [memory_limiter, k8s_attributes, resourcedetection, batch]
+                exporters: [otlp_http/newrelic]
+
+              metrics:
+                receivers: [otlp, kubeletstats]
+                processors: [memory_limiter, k8s_attributes, resourcedetection, batch]
+                exporters: [prometheus, otlp_http/newrelic]
+
+              logs:
+                receivers: [otlp, file_log]
+                processors: [memory_limiter, k8s_attributes, resourcedetection, batch]
+                exporters: [otlp_http/loki, otlp_http/newrelic]
+
+        # ---------------------------------------------------------
+        # Prometheus raspa o Collector
+        # ---------------------------------------------------------
+        # Funciona por causa do podMonitorSelectorNilUsesHelmValues:
+        # false no kube-prometheus-stack.
+        podMonitor:
+          enabled: true
+          metricsEndpoints:
+            - port: prometheus
+
+        resources:
+          requests:
+            cpu: 100m
+            memory: 192Mi
+          limits:
+            memory: 512Mi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 3m

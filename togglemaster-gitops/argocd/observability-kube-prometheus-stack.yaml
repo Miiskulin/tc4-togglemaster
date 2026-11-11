@@ -1,0 +1,152 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-prometheus-stack
+  namespace: argocd
+  annotations:
+    # Sobe antes do Collector: ele exporta metricas para ser raspado aqui.
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 93.1.2
+
+    helm:
+      values: |
+        # ---------------------------------------------------------
+        # Alertmanager desligado
+        # ---------------------------------------------------------
+        # O alerta da Fase 4 e feito no Grafana Alerting, que ja fala
+        # direto com PagerDuty, Discord e webhook. Manter o Alertmanager
+        # junto criaria dois sistemas de alerta concorrentes no mesmo
+        # cluster, e so um deles seria demonstrado.
+        alertmanager:
+          enabled: false
+
+        # ---------------------------------------------------------
+        # Prometheus
+        # ---------------------------------------------------------
+        prometheus:
+          prometheusSpec:
+            # Por padrao o operator so descobre ServiceMonitor e
+            # PodMonitor criados por este mesmo chart. Sem estes dois
+            # false, o monitor do OTel Collector e simplesmente
+            # ignorado - sem erro, sem aviso, so nao raspa.
+            serviceMonitorSelectorNilUsesHelmValues: false
+            podMonitorSelectorNilUsesHelmValues: false
+            ruleSelectorNilUsesHelmValues: false
+
+            # Sem PersistentVolume: o cluster nao tem o EBS CSI driver
+            # instalado. O historico se perde quando o pod reinicia, o
+            # que e aceitavel aqui e esta declarado no relatorio.
+            retention: 12h
+
+            resources:
+              requests:
+                cpu: 200m
+                memory: 768Mi
+              limits:
+                memory: 1536Mi
+
+        # ---------------------------------------------------------
+        # Grafana
+        # ---------------------------------------------------------
+        grafana:
+          enabled: true
+
+          # Senha fora do Git. O Secret e criado por comando:
+          #   kubectl create secret generic grafana-admin -n observability \
+          #     --from-literal=admin-user=admin \
+          #     --from-literal=admin-password='...'
+          admin:
+            existingSecret: grafana-admin
+            userKey: admin-user
+            passwordKey: admin-password
+
+          # O sidecar varre ConfigMaps com este label e carrega o JSON
+          # como dashboard. E assim que o dashboard customizado entra
+          # versionado no Git, em vez de ser clicado na interface.
+          sidecar:
+            dashboards:
+              enabled: true
+              label: grafana_dashboard
+              labelValue: "1"
+              searchNamespace: ALL
+            datasources:
+              enabled: true
+              searchNamespace: ALL
+
+          # O datasource do Prometheus o chart cria sozinho.
+          # O do Loki precisa ser declarado.
+          additionalDataSources:
+            - name: Loki
+              type: loki
+              access: proxy
+              url: http://loki.observability.svc.cluster.local:3100
+              jsonData:
+                maxLines: 1000
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+
+        # ---------------------------------------------------------
+        # Coletores de metrica de infraestrutura
+        # ---------------------------------------------------------
+        # Os dois alimentam o painel "uso de recursos do cluster"
+        # exigido pelo enunciado. kube-state-metrics traz o estado dos
+        # objetos da API; node-exporter traz CPU, memoria e disco dos nos.
+        kube-state-metrics:
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+
+        prometheus-node-exporter:
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+
+        # ---------------------------------------------------------
+        # Componentes gerenciados pela AWS
+        # ---------------------------------------------------------
+        # No EKS o control plane e gerenciado: estes endpoints nao sao
+        # acessiveis. Deixar ligado gera alvo de scrape permanentemente
+        # com erro, poluindo o painel de Targets.
+        kubeApiServer:
+          enabled: true
+        kubeControllerManager:
+          enabled: false
+        kubeScheduler:
+          enabled: false
+        kubeEtcd:
+          enabled: false
+        kubeProxy:
+          enabled: false
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # As CRDs do Prometheus Operator passam do limite de tamanho da
+      # anotacao last-applied-configuration que o apply client-side usa.
+      # Sem server-side apply, o sync falha com "metadata.annotations:
+      # Too long".
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 3m
