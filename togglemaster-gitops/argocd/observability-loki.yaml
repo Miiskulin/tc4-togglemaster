@@ -60,10 +60,26 @@ spec:
 
         singleBinary:
           replicas: 1
+
+          # Sem PersistentVolume e sem volume nenhum, o Loki morre no
+          # boot com `mkdir /var/loki: read-only file system`: o
+          # container roda com rootfs somente-leitura e o chart nao
+          # monta nada em /var/loki quando persistence esta desligada.
+          #
+          # PVC nao e opcao: a StorageClass gp2 deste cluster usa o
+          # provisioner in-tree kubernetes.io/aws-ebs, removido do
+          # Kubernetes moderno, e o driver EBS CSI nao esta instalado.
+          # Um PVC ficaria Pending para sempre.
           persistence:
-            # emptyDir pelo mesmo motivo do Prometheus: sem EBS CSI
-            # driver no cluster. Log nao sobrevive a restart do pod.
             enabled: false
+
+          extraVolumes:
+            - name: data
+              emptyDir: {}
+
+          extraVolumeMounts:
+            - name: data
+              mountPath: /var/loki
           resources:
             requests:
               cpu: 100m
