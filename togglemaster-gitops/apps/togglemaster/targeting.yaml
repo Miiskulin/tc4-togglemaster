@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: targeting-service
-          image: 199584041184.dkr.ecr.us-east-1.amazonaws.com/togglemaster-targeting:v1
+          image: 199584041184.dkr.ecr.us-east-1.amazonaws.com/togglemaster-targeting:b122aeb946723f4d2912741703da984ca6157711
           imagePullPolicy: Always
           ports:
             - containerPort: 8003
