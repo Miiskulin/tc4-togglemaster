@@ -4,3 +4,10 @@ psycopg2-binary==2.9.5
 gunicorn==22.0.0
 python-dotenv==1.2.2
 requests==2.33.0
+
+# OpenTelemetry - instrumentacao automatica.
+# distro traz o SDK + o comando `opentelemetry-instrument`;
+# exporter-otlp traz os exportadores OTLP. As duas versoes andam
+# juntas: SDK 1.45.x corresponde a instrumentacao 0.66bX.
+opentelemetry-distro==0.66b2
+opentelemetry-exporter-otlp==1.45.2

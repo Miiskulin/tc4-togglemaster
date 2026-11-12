@@ -20,6 +20,29 @@ spec:
           ports:
             - containerPort: 8001
           env:
+            # ---------------- OpenTelemetry ----------------
+            # O Collector roda como DaemonSet: cada pod fala com a
+            # instancia do SEU proprio no, sem salto de rede entre nos.
+            - name: HOST_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            # O Kubernetes substitui $(HOST_IP) porque ele foi
+            # declarado acima - a ordem na lista importa.
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://$(HOST_IP):4318"
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: "http/protobuf"
+            - name: OTEL_SERVICE_NAME
+              value: "auth-service"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "service.namespace=togglemaster,deployment.environment=production"
+            # Logs ficam por conta do receiver filelog do Collector,
+            # que ja le o stdout de todos os conteineres. Exportar
+            # tambem por OTLP duplicaria cada linha no Loki.
+            - name: OTEL_LOGS_EXPORTER
+              value: "none"
+            # ----------------------------------------------
             - name: PORT
               value: "8001"
             - name: DATABASE_URL
