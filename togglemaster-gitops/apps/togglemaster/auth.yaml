@@ -19,6 +19,22 @@ spec:
           imagePullPolicy: Always
           ports:
             - containerPort: 8001
+          # Dimensionado a partir do pico medido em producao: 7 MiB / 1.5 mCPU.
+          #
+          # Sem requests o pod entra na classe BestEffort - sem
+          # reserva de CPU e o primeiro a ser despejado quando o no
+          # fica sem memoria. Com requests, vira Burstable.
+          #
+          # Limite de memoria sim, de CPU nao. Estourar memoria mata
+          # o processo, e um limite protege os vizinhos. Limite de CPU
+          # so causa throttling: a aplicacao fica lenta de um jeito
+          # que nao aparece em nenhuma metrica obvia.
+          resources:
+            requests:
+              cpu: 25m
+              memory: 48Mi
+            limits:
+              memory: 128Mi
           env:
             # ---------------- OpenTelemetry ----------------
             # O Collector roda como DaemonSet: cada pod fala com a
