@@ -10,12 +10,11 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/sqs"
-	"github.com/go-redis/redis/v8"
 	"github.com/joho/godotenv"
+	"github.com/redis/go-redis/extra/redisotel/v9"
+	"github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
-
-// Contexto global para o Redis
-var ctx = context.Background()
 
 // App struct para injeção de dependência
 type App struct {
@@ -61,6 +60,27 @@ func main() {
 		log.Fatal("AWS_REGION deve ser definida para usar SQS")
 	}
 
+	// --- OpenTelemetry ---
+	ctx := context.Background()
+
+	shutdownTelemetry, err := initTelemetry(ctx)
+	if err != nil {
+		// Telemetria quebrada não derruba o serviço: uma queda do
+		// Collector viraria queda da aplicação, o oposto do que
+		// observabilidade deve produzir.
+		log.Printf("OpenTelemetry não inicializou, seguindo sem telemetria: %v", err)
+		shutdownTelemetry = func(context.Context) error { return nil }
+	}
+
+	defer func() {
+		ctxShutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if err := shutdownTelemetry(ctxShutdown); err != nil {
+			log.Printf("Erro ao encerrar a telemetria: %v", err)
+		}
+	}()
+
 	// --- Inicializa Clientes ---
 
 	// Cliente Redis
@@ -69,6 +89,14 @@ func main() {
 		log.Fatalf("Não foi possível parsear a URL do Redis: %v", err)
 	}
 	rdb := redis.NewClient(opt)
+
+	// Um span por comando Redis, filho do span da requisição. É o que
+	// mostra no trace se a resposta veio do cache ou do banco — a
+	// diferença entre 2ms e 200ms neste serviço.
+	if err := redisotel.InstrumentTracing(rdb); err != nil {
+		log.Printf("Não foi possível instrumentar o Redis: %v", err)
+	}
+
 	if _, err := rdb.Ping(ctx).Result(); err != nil {
 		log.Fatalf("Não foi possível conectar ao Redis: %v", err)
 	}
@@ -86,8 +114,14 @@ func main() {
 	}
 
 	// Cliente HTTP (com timeout)
+	//
+	// O Transport instrumentado é a peça que INJETA o cabeçalho
+	// traceparent nas chamadas ao flag-service e ao targeting-service.
+	// Sem ele, cada serviço abriria um trace próprio e o Service Map
+	// mostraria cinco ilhas em vez de um grafo de dependências.
 	httpClient := &http.Client{
-		Timeout: 5 * time.Second,
+		Timeout:   5 * time.Second,
+		Transport: otelhttp.NewTransport(http.DefaultTransport),
 	}
 
 	// Cria a instância da App
@@ -106,9 +140,19 @@ func main() {
 	mux.HandleFunc("/evaluate", app.evaluationHandler)
 	log.Println("Servico de Avaliacao iniciado")
 
+	// Lado servidor: cria o span raiz e lê o traceparent de quem
+	// chamou, se houver.
+	handler := otelhttp.NewHandler(
+		mux,
+		"evaluation-service",
+		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
+			return r.Method + " " + r.URL.Path
+		}),
+	)
+
 	server := &http.Server{
 		Addr:              ":" + port,
-		Handler:           mux,
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,

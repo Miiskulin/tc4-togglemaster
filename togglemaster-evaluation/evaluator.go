@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
@@ -21,8 +22,8 @@ const (
 )
 
 // getDecision e o wrapper principal.
-func (a *App) getDecision(userID, flagName string) (bool, error) {
-	info, err := a.getCombinedFlagInfo(flagName)
+func (a *App) getDecision(ctx context.Context, userID, flagName string) (bool, error) {
+	info, err := a.getCombinedFlagInfo(ctx, flagName)
 	if err != nil {
 		return false, err
 	}
@@ -31,7 +32,7 @@ func (a *App) getDecision(userID, flagName string) (bool, error) {
 }
 
 // getCombinedFlagInfo busca os dados no Redis, com fallback para os microsservicos.
-func (a *App) getCombinedFlagInfo(flagName string) (*CombinedFlagInfo, error) {
+func (a *App) getCombinedFlagInfo(ctx context.Context, flagName string) (*CombinedFlagInfo, error) {
 	cacheKey := fmt.Sprintf("flag_info:%s", flagName)
 
 	val, err := a.RedisClient.Get(ctx, cacheKey).Result()
@@ -47,7 +48,7 @@ func (a *App) getCombinedFlagInfo(flagName string) (*CombinedFlagInfo, error) {
 
 	log.Println("Cache MISS")
 
-	info, err := a.fetchFromServices(flagName)
+	info, err := a.fetchFromServices(ctx, flagName)
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +67,7 @@ func (a *App) getCombinedFlagInfo(flagName string) (*CombinedFlagInfo, error) {
 }
 
 // fetchFromServices busca dados do flag-service e targeting-service concorrentemente.
-func (a *App) fetchFromServices(flagName string) (*CombinedFlagInfo, error) {
+func (a *App) fetchFromServices(ctx context.Context, flagName string) (*CombinedFlagInfo, error) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 
@@ -76,12 +77,12 @@ func (a *App) fetchFromServices(flagName string) (*CombinedFlagInfo, error) {
 
 	go func() {
 		defer wg.Done()
-		flagInfo, flagErr = a.fetchFlag(flagName)
+		flagInfo, flagErr = a.fetchFlag(ctx, flagName)
 	}()
 
 	go func() {
 		defer wg.Done()
-		ruleInfo, ruleErr = a.fetchRule(flagName)
+		ruleInfo, ruleErr = a.fetchRule(ctx, flagName)
 	}()
 
 	wg.Wait()
@@ -125,7 +126,7 @@ func buildServiceURL(baseURL, resource, flagName string) (string, error) {
 	return base.String(), nil
 }
 
-func (a *App) fetchFlag(flagName string) (*Flag, error) {
+func (a *App) fetchFlag(ctx context.Context, flagName string) (*Flag, error) {
 	serviceURL, err := buildServiceURL(a.FlagServiceURL, "flags", flagName)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao construir URL do flag-service: %w", err)
@@ -133,7 +134,7 @@ func (a *App) fetchFlag(flagName string) (*Flag, error) {
 
 	apiKey := os.Getenv("SERVICE_API_KEY")
 
-	req, err := http.NewRequest(http.MethodGet, serviceURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, serviceURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao criar requisicao para flag-service: %w", err)
 	}
@@ -171,7 +172,7 @@ func (a *App) fetchFlag(flagName string) (*Flag, error) {
 	return &flag, nil
 }
 
-func (a *App) fetchRule(flagName string) (*TargetingRule, error) {
+func (a *App) fetchRule(ctx context.Context, flagName string) (*TargetingRule, error) {
 	serviceURL, err := buildServiceURL(a.TargetingServiceURL, "rules", flagName)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao construir URL do targeting-service: %w", err)
@@ -179,7 +180,7 @@ func (a *App) fetchRule(flagName string) (*TargetingRule, error) {
 
 	apiKey := os.Getenv("SERVICE_API_KEY")
 
-	req, err := http.NewRequest(http.MethodGet, serviceURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, serviceURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao criar requisicao para targeting-service: %w", err)
 	}

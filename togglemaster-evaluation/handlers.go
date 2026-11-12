@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -36,7 +37,7 @@ func (a *App) evaluationHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := a.getDecision(userID, flagName)
+	result, err := a.getDecision(r.Context(), userID, flagName)
 	if err != nil {
 		if _, ok := err.(*NotFoundError); ok {
 			result = false
@@ -51,7 +52,11 @@ func (a *App) evaluationHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	go a.sendEvaluationEvent(userID, flagName, result)
+	// O envio para o SQS acontece fora do caminho da resposta.
+	// context.WithoutCancel preserva o trace mas remove o
+	// cancelamento: sem isso, o contexto morre quando o handler
+	// retorna e a mensagem nunca chega na fila.
+	go a.sendEvaluationEvent(context.WithoutCancel(r.Context()), userID, flagName, result)
 
 	w.WriteHeader(http.StatusOK)
 
