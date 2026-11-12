@@ -62,6 +62,17 @@ spec:
             # antiga) e o otelhttp do Go emite http.server.request.duration
             # em segundos: dois nomes para a mesma coisa, e o painel
             # precisaria de duas consultas.
+            # Habilita /debug/break e /debug/heal. Sem esta
+            # variavel as rotas nao sao registradas e respondem
+            # 404 - nao ha verificacao em tempo de requisicao
+            # que alguem possa contornar.
+            #
+            # Existe porque o self-healing precisa de uma falha
+            # que o rollout restart realmente cure. Parar o banco
+            # do flag-service, exemplo do enunciado, nao serve:
+            # reiniciar o evaluation nao religa um RDS.
+            - name: DEBUG_BREAK_ENABLED
+              value: "true"
             - name: OTEL_SEMCONV_STABILITY_OPT_IN
               value: "http"
             - name: OTEL_LOGS_EXPORTER

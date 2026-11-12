@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type EvaluationResponse struct {
@@ -24,6 +27,24 @@ func (a *App) healthHandler(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) evaluationHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+
+	// Modo de falha injetada. Responder 500 faz a metrica
+	// http_server_request_duration_seconds_count ganhar o rotulo
+	// http_response_status_code="500", que e exatamente o que o
+	// alerta observa.
+	if a.Broken.Load() {
+		span := trace.SpanFromContext(r.Context())
+		span.SetStatus(codes.Error, "falha injetada para demonstracao")
+
+		log.Println("[DEBUG_BREAK] Respondendo 500 por falha injetada")
+
+		http.Error(
+			w,
+			`{"error": "falha injetada para demonstracao de self-healing"}`,
+			http.StatusInternalServerError,
+		)
+		return
+	}
 
 	userID := r.URL.Query().Get("user_id")
 	flagName := r.URL.Query().Get("flag_name")

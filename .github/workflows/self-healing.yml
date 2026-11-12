@@ -1,0 +1,149 @@
+name: Self-Healing
+
+# Disparado pelo contact point "self-healing" do Grafana, que chama a
+# API de repository_dispatch do GitHub quando o alerta de taxa de erro
+# entra em Firing.
+#
+# O caminho completo:
+#   evaluation-service responde 5xx
+#     -> OTel Collector -> Prometheus
+#     -> Grafana avalia a regra e dispara
+#     -> contact point webhook -> repository_dispatch
+#     -> este workflow -> OIDC -> kubectl rollout restart
+#
+# workflow_dispatch tambem esta habilitado para ensaiar a demonstracao
+# sem precisar provocar o alerta.
+on:
+  repository_dispatch:
+    types: [self-heal]
+  workflow_dispatch:
+    inputs:
+      service:
+        description: Deployment a reiniciar
+        required: true
+        default: evaluation-service
+        type: choice
+        options:
+          - evaluation-service
+          - auth-service
+          - flag-service
+          - targeting-service
+          - analytics-service
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: us-east-1
+  CLUSTER_NAME: togglemaster-eks
+  NAMESPACE: togglemaster
+
+# Duas remediacoes simultaneas no mesmo deployment nao ajudam: a
+# segunda cancelaria o rollout da primeira pela metade. Se o alerta
+# disparar de novo enquanto esta rodando, a execucao em curso vence.
+concurrency:
+  group: self-healing-${{ github.event.client_payload.service || inputs.service || 'evaluation-service' }}
+  cancel-in-progress: false
+
+jobs:
+  remediar:
+    name: Reiniciar o deployment afetado
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Identificar o alvo
+        id: alvo
+        run: |
+          set -euo pipefail
+
+          SERVICO="${{ github.event.client_payload.service || inputs.service || 'evaluation-service' }}"
+
+          # Lista fechada. O nome vem de um payload externo, e sem esta
+          # validacao um webhook forjado poderia pedir o restart de
+          # qualquer deployment do namespace.
+          case "$SERVICO" in
+            evaluation-service|auth-service|flag-service|targeting-service|analytics-service)
+              ;;
+            *)
+              echo "::error::Servico nao reconhecido: $SERVICO"
+              exit 1
+              ;;
+          esac
+
+          echo "servico=$SERVICO" >> "$GITHUB_OUTPUT"
+          echo "### Alvo da remediacao: \`$SERVICO\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Origem: \`${{ github.event_name }}\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Configurar credenciais AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::199584041184:role/togglemaster-github-actions-role
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Configurar kubectl
+        run: |
+          aws eks update-kubeconfig \
+            --name "${{ env.CLUSTER_NAME }}" \
+            --region "${{ env.AWS_REGION }}"
+
+      - name: Estado antes
+        run: |
+          echo "#### Antes" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          kubectl get pods -n "${{ env.NAMESPACE }}" \
+            -l app=${{ steps.alvo.outputs.servico }} \
+            -o wide 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Reiniciar o deployment
+        run: |
+          set -euo pipefail
+
+          # rollout restart e nao delete pod: o Kubernetes sobe o pod
+          # novo, espera ficar Ready e so entao derruba o antigo. Com
+          # delete haveria janela sem nenhuma replica atendendo.
+          kubectl rollout restart deployment/${{ steps.alvo.outputs.servico }} \
+            -n "${{ env.NAMESPACE }}"
+
+          kubectl rollout status deployment/${{ steps.alvo.outputs.servico }} \
+            -n "${{ env.NAMESPACE }}" \
+            --timeout=5m
+
+      - name: Estado depois
+        run: |
+          echo "#### Depois" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          kubectl get pods -n "${{ env.NAMESPACE }}" \
+            -l app=${{ steps.alvo.outputs.servico }} \
+            -o wide 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Confirmar que o servico voltou
+        run: |
+          set -euo pipefail
+
+          # Reiniciar nao e o mesmo que curar. Esta verificacao e o que
+          # separa "a automacao rodou" de "a automacao resolveu" - sem
+          # ela, o workflow ficaria verde mesmo com o servico quebrado.
+          kubectl run verificacao-self-healing \
+            --rm -i --restart=Never \
+            --image=curlimages/curl:8.11.1 \
+            -n "${{ env.NAMESPACE }}" \
+            --command -- \
+            curl -sf --retry 10 --retry-delay 3 --retry-connrefused \
+              "http://${{ steps.alvo.outputs.servico }}:8004/health"
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Servico respondeu em /health apos o restart." >> "$GITHUB_STEP_SUMMARY"
+        # Os outros servicos usam portas diferentes; a verificacao e
+        # especifica do evaluation, que e o alvo da demonstracao.
+        if: steps.alvo.outputs.servico == 'evaluation-service'
+
+      - name: Registrar o resultado
+        if: always()
+        run: |
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Resultado: **${{ job.status }}**" >> "$GITHUB_STEP_SUMMARY"
+          echo "Executado em: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> "$GITHUB_STEP_SUMMARY"

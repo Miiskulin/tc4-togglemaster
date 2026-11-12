@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -18,6 +19,11 @@ import (
 
 // App struct para injeção de dependência
 type App struct {
+	// Broken e lido em toda requisicao e escrito pelo endpoint de
+	// injecao. atomic.Bool porque o servidor HTTP atende em
+	// varias goroutines - um bool simples seria corrida de dados.
+	Broken atomic.Bool
+
 	RedisClient         *redis.Client
 	SqsSvc              *sqs.SQS
 	SqsQueueURL         string
@@ -138,6 +144,14 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", app.healthHandler)
 	mux.HandleFunc("/evaluate", app.evaluationHandler)
+
+	// Rotas de injecao de falha, so quando habilitadas por
+	// variavel de ambiente. Sem ela, nao existem.
+	if debugBreakEnabled() {
+		mux.HandleFunc("/debug/break", app.breakHandler)
+		mux.HandleFunc("/debug/heal", app.healHandler)
+		log.Println("ATENCAO: /debug/break habilitado - apenas para demonstracao")
+	}
 	log.Println("Servico de Avaliacao iniciado")
 
 	// Lado servidor: cria o span raiz e lê o traceparent de quem
