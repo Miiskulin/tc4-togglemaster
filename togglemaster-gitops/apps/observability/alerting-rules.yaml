@@ -78,8 +78,14 @@ data:
             annotations:
               summary: >-
                 O evaluation-service esta respondendo mais de 5% de erros 5xx
+              # humanizePercentage formata 0.07 como "7%".
+              #
+              # Nao use mulf: ela existe no Alertmanager do Prometheus,
+              # mas nao no templating de alerta do Grafana, e o erro so
+              # aparece em runtime, na primeira avaliacao da regra -
+              # o provisionamento aceita o arquivo normalmente.
               description: >-
-                Taxa atual de erro: {{ printf "%.1f" (mulf $values.taxa_erro.Value 100) }}%.
+                Taxa atual de erro: {{ humanizePercentage $values.taxa_erro.Value }}.
                 Limiar configurado: 5%.
                 A automacao de self-healing foi acionada e vai executar
                 rollout restart no deployment.
