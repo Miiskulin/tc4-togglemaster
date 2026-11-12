@@ -79,11 +79,24 @@ spec:
               enabled: true
               searchNamespace: ALL
 
-          # O datasource do Prometheus o chart cria sozinho.
+          # O chart cria o datasource do Prometheus (uid: prometheus) e
+          # um do Alertmanager. Como o Alertmanager esta desligado, esse
+          # datasource aponta para um Service inexistente e aparece
+          # quebrado na interface.
+          deleteDatasources:
+            - name: Alertmanager
+              orgId: 1
+
           # O do Loki precisa ser declarado.
+          #
+          # O uid fixo nao e detalhe: um dashboard versionado referencia
+          # o datasource por uid. Sem declarar, o Grafana gera um
+          # aleatorio a cada instalacao e o dashboard provisionado
+          # aponta para o vazio.
           additionalDataSources:
             - name: Loki
               type: loki
+              uid: loki
               access: proxy
               url: http://loki.observability.svc.cluster.local:3100
               jsonData:

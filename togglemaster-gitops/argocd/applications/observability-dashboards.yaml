@@ -1,0 +1,36 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: observability-dashboards
+  namespace: argocd
+  annotations:
+    # Onda 3: o Grafana precisa estar de pe para o sidecar enxergar o
+    # ConfigMap e carregar o dashboard.
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  project: default
+
+  # Manifestos proprios, sem Helm. Aqui vivem os ConfigMaps de
+  # dashboard, carregados pelo sidecar do Grafana atraves do label
+  # grafana_dashboard: "1".
+  source:
+    repoURL: git@github.com:Miiskulin/tc4-togglemaster.git
+    targetRevision: main
+    path: togglemaster-gitops/apps/observability
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 3m
