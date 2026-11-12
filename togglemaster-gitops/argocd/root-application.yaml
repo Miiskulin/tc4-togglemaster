@@ -1,0 +1,52 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+spec:
+  project: default
+
+  # ---------------------------------------------------------------
+  # App of apps
+  # ---------------------------------------------------------------
+  # Esta Application nao instala software: ela gerencia as OUTRAS
+  # Applications, que vivem em applications/.
+  #
+  # O problema que isso resolve: um manifesto de Application aplicado
+  # com `kubectl apply` fica orfao. Editar o arquivo no Git nao muda
+  # nada no cluster, porque ninguem esta observando aquele arquivo. Foi
+  # exatamente o que aconteceu com o Collector: a configuracao nova
+  # estava commitada e o DaemonSet continuava com a antiga.
+  #
+  # Com o root, a cadeia fecha: editar applications/*.yaml e commitar
+  # basta. O root percebe, aplica, e a Application filha sincroniza o
+  # que mudou.
+  #
+  # Esta e a unica Application que ainda precisa de `kubectl apply`
+  # manual, uma vez so. Ela se auto-gerencia depois, porque o proprio
+  # arquivo root-application.yaml NAO esta em applications/ - se
+  # estivesse, um erro nele poderia deixar o ArgoCD sem conseguir se
+  # recuperar.
+  source:
+    repoURL: git@github.com:Miiskulin/tc4-togglemaster.git
+    targetRevision: main
+    path: togglemaster-gitops/argocd/applications
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+
+  syncPolicy:
+    automated:
+      # prune: uma Application removida do Git e removida do cluster,
+      # junto com tudo que ela instalou. E o comportamento correto de
+      # GitOps, e tambem o mais perigoso: apagar um arquivo aqui
+      # desinstala um sistema inteiro.
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 3m
