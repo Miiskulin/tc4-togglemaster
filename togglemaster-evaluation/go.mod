@@ -1,6 +1,6 @@
 module evaluation-service
 
-go 1.26.10
+go 1.26.11
 
 require (
 	github.com/aws/aws-sdk-go v1.51.10

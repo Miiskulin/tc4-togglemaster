@@ -40,6 +40,13 @@ spec:
             # Logs ficam por conta do receiver filelog do Collector,
             # que ja le o stdout de todos os conteineres. Exportar
             # tambem por OTLP duplicaria cada linha no Loki.
+            # Convencao semantica estavel de HTTP. Sem isto, Python
+            # emite http.server.duration em milissegundos (convencao
+            # antiga) e o otelhttp do Go emite http.server.request.duration
+            # em segundos: dois nomes para a mesma coisa, e o painel
+            # precisaria de duas consultas.
+            - name: OTEL_SEMCONV_STABILITY_OPT_IN
+              value: "http"
             - name: OTEL_LOGS_EXPORTER
               value: "none"
             # ----------------------------------------------

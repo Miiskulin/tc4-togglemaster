@@ -84,12 +84,33 @@ spec:
             hostPort: 4318
             protocol: TCP
           prometheus:
-            # Porta onde o Collector publica /metrics para o
-            # Prometheus raspar.
+            # Porta onde o Collector publica as metricas das aplicacoes
+            # para o Prometheus raspar.
             enabled: true
             containerPort: 8889
             servicePort: 8889
             protocol: TCP
+          self-metrics:
+            # Telemetria INTERNA do Collector, numa porta diferente da
+            # 8889: quantos spans recebeu, quantos exportou, quantos
+            # descartou. Sem isto nao ha como responder "o trace nao
+            # aparece: o Collector nao recebeu ou nao conseguiu enviar?"
+            enabled: true
+            containerPort: 8888
+            servicePort: 8888
+            protocol: TCP
+
+          # Receivers que o chart habilita por padrao e que nao estao
+          # em nenhum pipeline nosso. Abrir porta que ninguem escuta e
+          # superficie de ataque sem contrapartida.
+          jaeger-compact:
+            enabled: false
+          jaeger-thrift:
+            enabled: false
+          jaeger-grpc:
+            enabled: false
+          zipkin:
+            enabled: false
 
         # ---------------------------------------------------------
         # Configuracao do Collector
@@ -121,6 +142,33 @@ spec:
               system:
                 hostname_sources: [os]
 
+            # Cardinalidade: o exporter prometheus com
+            # resource_to_telemetry_conversion transforma TODO atributo
+            # de recurso em label. Estes abaixo mudam a cada restart de
+            # pod, entao cada restart criaria um conjunto inteiro de
+            # series novas - a causa classica de explosao de
+            # cardinalidade no Prometheus.
+            #
+            # So se aplica ao caminho do Prometheus. O New Relic recebe
+            # os atributos completos, porque la eles sao dimensoes de
+            # consulta e nao series de disco.
+            resource/reduzir_cardinalidade:
+              attributes:
+                - key: k8s.pod.uid
+                  action: delete
+                - key: k8s.replicaset.uid
+                  action: delete
+                - key: k8s.pod.start_time
+                  action: delete
+                - key: service.instance.id
+                  action: delete
+                - key: k8s.cluster.uid
+                  action: delete
+                - key: container.image.name
+                  action: delete
+                - key: container.id
+                  action: delete
+
           exporters:
             # APM comercial. O endpoint muda por regiao: esta conta e
             # US. Em conta EU seria https://otlp.eu01.nr-data.net
@@ -149,10 +197,19 @@ spec:
                 processors: [memory_limiter, k8s_attributes, resourcedetection, batch]
                 exporters: [otlp_http/newrelic]
 
+              # Dois pipelines de metrica com os mesmos receivers, e
+              # nao um so com dois exporters: o processador de
+              # cardinalidade precisa valer apenas para o Prometheus.
+              # Processador e por pipeline, nao por exporter.
               metrics:
                 receivers: [otlp, kubeletstats]
                 processors: [memory_limiter, k8s_attributes, resourcedetection, batch]
-                exporters: [prometheus, otlp_http/newrelic]
+                exporters: [otlp_http/newrelic]
+
+              metrics/prometheus:
+                receivers: [otlp, kubeletstats]
+                processors: [memory_limiter, k8s_attributes, resourcedetection, resource/reduzir_cardinalidade, batch]
+                exporters: [prometheus]
 
               logs:
                 receivers: [otlp, file_log]
@@ -167,7 +224,10 @@ spec:
         podMonitor:
           enabled: true
           metricsEndpoints:
+            # Metricas das aplicacoes, vindas por OTLP.
             - port: prometheus
+            # Telemetria do proprio Collector.
+            - port: self-metrics
 
         resources:
           requests:
