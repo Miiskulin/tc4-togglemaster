@@ -1,0 +1,82 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-alerting-contact-points
+  namespace: observability
+  labels:
+    grafana_alert: "1"
+data:
+  contact-points.yaml: |
+    apiVersion: 1
+
+    contactPoints:
+      # ---------------------------------------------------------
+      # Gerenciamento de incidentes
+      # ---------------------------------------------------------
+      - orgId: 1
+        name: pagerduty
+        receivers:
+          - uid: pagerduty-togglemaster
+            type: pagerduty
+            settings:
+              # Events API v2. A chave vem da variavel de ambiente
+              # injetada pelo Secret grafana-alerting-secrets.
+              integrationKey: $PAGERDUTY_INTEGRATION_KEY
+              severity: critical
+              class: disponibilidade
+              component: evaluation-service
+              group: togglemaster
+              summary: '{{ template "default.title" . }}'
+            disableResolveMessage: false
+
+      # ---------------------------------------------------------
+      # ChatOps
+      # ---------------------------------------------------------
+      - orgId: 1
+        name: discord
+        receivers:
+          - uid: discord-togglemaster
+            type: discord
+            settings:
+              url: $DISCORD_WEBHOOK_URL
+              title: '{{ template "default.title" . }}'
+              message: |
+                {{ template "default.message" . }}
+
+                Runbook: reiniciar o deployment restaura o servico.
+                A automacao de self-healing ja foi acionada em paralelo.
+            disableResolveMessage: false
+
+      # ---------------------------------------------------------
+      # Self-healing
+      # ---------------------------------------------------------
+      - orgId: 1
+        name: self-healing
+        receivers:
+          - uid: github-self-healing
+            type: webhook
+            settings:
+              # A API de repository_dispatch do GitHub exige um corpo
+              # com o campo event_type. O webhook do Grafana manda o
+              # formato dele por padrao, que o GitHub recusaria - por
+              # isso o payload customizado.
+              url: https://api.github.com/repos/Miiskulin/tc4-togglemaster/dispatches
+              httpMethod: POST
+              authorization_scheme: Bearer
+              authorization_credentials: $GITHUB_DISPATCH_TOKEN
+              payload:
+                template: |
+                  {
+                    "event_type": "self-heal",
+                    "client_payload": {
+                      "service": "evaluation-service",
+                      "namespace": "togglemaster",
+                      "alert": "{{ .Alerts.Firing | len }} alerta(s) disparando",
+                      "origem": "grafana"
+                    }
+                  }
+            # Nao notificar na resolucao: o self-healing so precisa ser
+            # acionado quando o problema comeca. Um disparo no
+            # "resolved" reiniciaria o servico que acabou de se
+            # recuperar.
+            disableResolveMessage: true

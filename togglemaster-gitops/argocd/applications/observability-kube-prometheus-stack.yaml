@@ -69,6 +69,19 @@ spec:
           # O sidecar varre ConfigMaps com este label e carrega o JSON
           # como dashboard. E assim que o dashboard customizado entra
           # versionado no Git, em vez de ser clicado na interface.
+          # Chaves de PagerDuty, Discord e GitHub entram como variaveis
+          # de ambiente a partir de um Secret. Os arquivos de
+          # provisionamento referenciam $NOME_DA_VARIAVEL, entao ficam
+          # versionados no Git sem conter segredo nenhum.
+          #
+          # Secret criado por comando:
+          #   kubectl create secret generic grafana-alerting-secrets \
+          #     -n observability \
+          #     --from-literal=PAGERDUTY_INTEGRATION_KEY=... \
+          #     --from-literal=DISCORD_WEBHOOK_URL=... \
+          #     --from-literal=GITHUB_DISPATCH_TOKEN=...
+          envFromSecret: grafana-alerting-secrets
+
           sidecar:
             dashboards:
               enabled: true
@@ -77,6 +90,13 @@ spec:
               searchNamespace: ALL
             datasources:
               enabled: true
+              searchNamespace: ALL
+            # Carrega regras de alerta, contact points e politica de
+            # notificacao de ConfigMaps com o label grafana_alert=1.
+            alerts:
+              enabled: true
+              label: grafana_alert
+              labelValue: "1"
               searchNamespace: ALL
 
           # O chart cria o datasource do Prometheus (uid: prometheus) e

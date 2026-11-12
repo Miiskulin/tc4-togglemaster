@@ -1,0 +1,132 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-alerting-rules
+  namespace: observability
+  labels:
+    grafana_alert: "1"
+data:
+  rules.yaml: |
+    apiVersion: 1
+
+    groups:
+      - orgId: 1
+        name: togglemaster-disponibilidade
+        folder: ToggleMaster
+        interval: 1m
+        rules:
+          - uid: evaluation-taxa-erro-5xx
+            title: Taxa de erro 5xx alta no evaluation-service
+            condition: limiar
+
+            # ---------------------------------------------------
+            # A consulta
+            # ---------------------------------------------------
+            data:
+              - refId: taxa_erro
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  refId: taxa_erro
+                  instant: true
+                  editorMode: code
+                  # Proporcao de 5xx sobre o total.
+                  #
+                  # rate() e obrigatorio: a metrica e um counter, que so
+                  # cresce. Sem rate, a expressao mediria o acumulado
+                  # desde o boot do processo e nunca desarmaria.
+                  #
+                  # clamp_min no denominador evita 0/0 quando nao ha
+                  # trafego. Sem ele o resultado seria NaN, e a regra
+                  # cairia em NoData em vez de ficar normal.
+                  expr: >-
+                    sum(rate(http_server_request_duration_seconds_count{service_name="evaluation-service",http_response_status_code=~"5.."}[5m]))
+                    /
+                    clamp_min(sum(rate(http_server_request_duration_seconds_count{service_name="evaluation-service"}[5m])), 0.001)
+
+              - refId: limiar
+                datasourceUid: __expr__
+                model:
+                  refId: limiar
+                  type: threshold
+                  expression: taxa_erro
+                  conditions:
+                    - evaluator:
+                        type: gt
+                        params: [0.05]
+
+            # ---------------------------------------------------
+            # Comportamento
+            # ---------------------------------------------------
+            # 1 minuto acima do limiar antes de disparar. Sem esse
+            # periodo, um pico de 15 segundos acorda alguem de
+            # madrugada - e e assim que fadiga de alerta comeca.
+            for: 1m
+
+            # Sem trafego nao e incidente. Com NoData -> Alerting, o
+            # alerta dispararia toda vez que o ambiente ficasse ocioso.
+            noDataState: OK
+            execErrState: Error
+
+            labels:
+              severidade: critica
+              servico: evaluation-service
+              equipe: plataforma
+
+            annotations:
+              summary: >-
+                O evaluation-service esta respondendo mais de 5% de erros 5xx
+              description: >-
+                Taxa atual de erro: {{ printf "%.1f" (mulf $values.taxa_erro.Value 100) }}%.
+                Limiar configurado: 5%.
+                A automacao de self-healing foi acionada e vai executar
+                rollout restart no deployment.
+              runbook_url: https://github.com/Miiskulin/tc4-togglemaster/blob/main/togglemaster-gitops/apps/observability/README.md
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-alerting-policy
+  namespace: observability
+  labels:
+    grafana_alert: "1"
+data:
+  notification-policy.yaml: |
+    apiVersion: 1
+
+    policies:
+      - orgId: 1
+        receiver: discord
+        group_by: [alertname, servico]
+
+        # Espera 10s juntando alertas do mesmo grupo antes da primeira
+        # notificacao. Em incidente real, varios alertas chegam juntos;
+        # agrupar transforma dez mensagens em uma.
+        group_wait: 10s
+        group_interval: 1m
+
+        # Nao repetir a mesma notificacao por 4 horas enquanto o alerta
+        # segue disparando. Repeticao frequente e a forma mais rapida
+        # de fazer um time ignorar o canal.
+        repeat_interval: 4h
+
+        routes:
+          # Alerta critico vai para os tres destinos ao mesmo tempo:
+          # incidente, chat e automacao.
+          - receiver: pagerduty
+            object_matchers:
+              - [severidade, =, critica]
+            continue: true
+
+          - receiver: discord
+            object_matchers:
+              - [severidade, =, critica]
+            continue: true
+
+          - receiver: self-healing
+            object_matchers:
+              - [severidade, =, critica]
+            # Sem continue: e a ultima rota da cadeia.
+            group_wait: 0s
