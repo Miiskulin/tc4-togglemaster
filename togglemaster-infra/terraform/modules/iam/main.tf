@@ -19,7 +19,7 @@ resource "aws_iam_role" "eks_cluster" {
 
   tags = {
     Name    = "togglemaster-eks-cluster-role"
-    Projeto = "MBA DevOps"
+    Projeto = "Pos DevOps"
   }
 }
 
@@ -49,7 +49,7 @@ resource "aws_iam_role" "eks_node" {
 
   tags = {
     Name    = "togglemaster-eks-node-role"
-    Projeto = "MBA DevOps"
+    Projeto = "Pos DevOps"
   }
 }
 

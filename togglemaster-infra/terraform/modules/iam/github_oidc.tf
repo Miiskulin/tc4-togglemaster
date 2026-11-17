@@ -7,7 +7,7 @@ resource "aws_iam_openid_connect_provider" "github" {
 
   tags = {
     Name    = "github-actions-oidc"
-    Projeto = "MBA DevOps"
+    Projeto = "Pos DevOps"
   }
 }
 
@@ -61,7 +61,7 @@ resource "aws_iam_role" "github_actions" {
 
   tags = {
     Name    = "togglemaster-github-actions-role"
-    Projeto = "MBA DevOps"
+    Projeto = "Pos DevOps"
   }
 }
 

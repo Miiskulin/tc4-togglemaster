@@ -1,24 +1,34 @@
+variable "use_aws_academy" {
+  description = "Quando true, utiliza a LabRole existente do AWS Academy Learner Lab sem criar recursos de IAM/OIDC"
+  type        = bool
+  default     = true
+}
+
 variable "auth_db_password" {
-  description = "Senha do banco Auth"
+  description = "Senha do banco Auth (use apenas caracteres RFC 3986 unreserved: A-Z a-z 0-9 - _ . ~)"
   type        = string
   sensitive   = true
+  default     = "ToggleMasterAuth2026"
 }
 
 variable "flag_db_password" {
-  description = "Senha do banco Flag"
+  description = "Senha do banco Flag (use apenas caracteres RFC 3986 unreserved: A-Z a-z 0-9 - _ . ~)"
   type        = string
   sensitive   = true
+  default     = "ToggleMasterFlag2026"
 }
 
 variable "targeting_db_password" {
-  description = "Senha do banco Targeting"
+  description = "Senha do banco Targeting (use apenas caracteres RFC 3986 unreserved: A-Z a-z 0-9 - _ . ~)"
   type        = string
   sensitive   = true
+  default     = "ToggleMasterTarget2026"
 }
 
 variable "eks_admin_principal_arn" {
-  description = "ARN do principal IAM administrador do cluster EKS"
+  description = "ARN do principal IAM administrador do cluster EKS (opcional quando use_aws_academy = true)"
   type        = string
+  default     = ""
 }
 
 variable "github_repository" {

@@ -1,3 +1,8 @@
+data "aws_iam_role" "lab_role" {
+  count = var.use_aws_academy ? 1 : 0
+  name  = "LabRole"
+}
+
 module "networking" {
   source = "./modules/networking"
 
@@ -8,6 +13,7 @@ module "networking" {
 }
 
 module "iam" {
+  count  = var.use_aws_academy ? 0 : 1
   source = "./modules/iam"
 
   sqs_queue_arn      = module.data_services.sqs_queue_arn
@@ -26,19 +32,29 @@ module "iam" {
   github_repo_id   = var.github_repo_id
 }
 
+locals {
+  eks_cluster_role_arn         = var.use_aws_academy ? data.aws_iam_role.lab_role[0].arn : module.iam[0].eks_cluster_role_arn
+  eks_node_role_arn            = var.use_aws_academy ? data.aws_iam_role.lab_role[0].arn : module.iam[0].eks_node_role_arn
+  evaluation_workload_role_arn = var.use_aws_academy ? data.aws_iam_role.lab_role[0].arn : module.iam[0].evaluation_workload_role_arn
+  analytics_workload_role_arn  = var.use_aws_academy ? data.aws_iam_role.lab_role[0].arn : module.iam[0].analytics_workload_role_arn
+  db_init_workload_role_arn    = var.use_aws_academy ? data.aws_iam_role.lab_role[0].arn : module.iam[0].db_init_workload_role_arn
+  github_actions_role_arn      = var.use_aws_academy ? data.aws_iam_role.lab_role[0].arn : module.iam[0].github_actions_role_arn
+}
+
 module "eks" {
   source = "./modules/eks"
 
-  cluster_role_arn = module.iam.eks_cluster_role_arn
-  node_role_arn    = module.iam.eks_node_role_arn
+  use_aws_academy  = var.use_aws_academy
+  cluster_role_arn = local.eks_cluster_role_arn
+  node_role_arn    = local.eks_node_role_arn
   subnet_ids       = module.networking.private_subnet_ids
 
-  evaluation_workload_role_arn = module.iam.evaluation_workload_role_arn
-  analytics_workload_role_arn  = module.iam.analytics_workload_role_arn
-  db_init_workload_role_arn    = module.iam.db_init_workload_role_arn
+  evaluation_workload_role_arn = local.evaluation_workload_role_arn
+  analytics_workload_role_arn  = local.analytics_workload_role_arn
+  db_init_workload_role_arn    = local.db_init_workload_role_arn
 
   admin_principal_arn     = var.eks_admin_principal_arn
-  github_actions_role_arn = module.iam.github_actions_role_arn
+  github_actions_role_arn = local.github_actions_role_arn
 }
 
 module "data_services" {

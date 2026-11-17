@@ -5,7 +5,7 @@ resource "aws_vpc" "main" {
 
   tags = {
     Name    = "togglemaster-vpc"
-    Projeto = "MBA DevOps"
+    Projeto = "Pos DevOps"
   }
 }
 
@@ -14,7 +14,7 @@ resource "aws_internet_gateway" "main" {
 
   tags = {
     Name    = "togglemaster-igw"
-    Projeto = "MBA DevOps"
+    Projeto = "Pos DevOps"
   }
 }
 
@@ -28,7 +28,7 @@ resource "aws_subnet" "public" {
 
   tags = {
     Name    = "togglemaster-public-${count.index + 1}"
-    Projeto = "MBA DevOps"
+    Projeto = "Pos DevOps"
     Tier    = "Public"
   }
 }
@@ -42,7 +42,7 @@ resource "aws_subnet" "private" {
 
   tags = {
     Name    = "togglemaster-private-${count.index + 1}"
-    Projeto = "MBA DevOps"
+    Projeto = "Pos DevOps"
     Tier    = "Private"
   }
 }
@@ -57,7 +57,7 @@ resource "aws_route_table" "public" {
 
   tags = {
     Name    = "togglemaster-public-rt"
-    Projeto = "MBA DevOps"
+    Projeto = "Pos DevOps"
     Tier    = "Public"
   }
 }
@@ -67,7 +67,7 @@ resource "aws_route_table" "private" {
 
   tags = {
     Name    = "togglemaster-private-rt"
-    Projeto = "MBA DevOps"
+    Projeto = "Pos DevOps"
     Tier    = "Private"
   }
 }
@@ -91,7 +91,7 @@ resource "aws_eip" "nat" {
 
   tags = {
     Name    = "togglemaster-nat-eip"
-    Projeto = "MBA DevOps"
+    Projeto = "Pos DevOps"
   }
 }
 
@@ -101,7 +101,7 @@ resource "aws_nat_gateway" "main" {
 
   tags = {
     Name    = "togglemaster-nat"
-    Projeto = "MBA DevOps"
+    Projeto = "Pos DevOps"
   }
 
   depends_on = [
