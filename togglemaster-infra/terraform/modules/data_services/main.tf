@@ -55,7 +55,7 @@ resource "aws_security_group" "data_services" {
 
   tags = {
     Name    = "togglemaster-data-services-sg"
-    Projeto = "MBA DevOps"
+    Projeto = "Pos DevOps"
   }
 }
 
@@ -69,7 +69,7 @@ resource "aws_db_subnet_group" "main" {
 
   tags = {
     Name    = "togglemaster-rds-subnet-group"
-    Projeto = "MBA DevOps"
+    Projeto = "Pos DevOps"
   }
 }
 
@@ -104,7 +104,7 @@ resource "aws_db_instance" "auth" {
 
   tags = {
     Name    = "togglemaster-auth-db"
-    Projeto = "MBA DevOps"
+    Projeto = "Pos DevOps"
     Servico = "Auth"
   }
 }
@@ -140,7 +140,7 @@ resource "aws_db_instance" "flag" {
 
   tags = {
     Name    = "togglemaster-flag-db"
-    Projeto = "MBA DevOps"
+    Projeto = "Pos DevOps"
     Servico = "Flag"
   }
 }
@@ -176,7 +176,7 @@ resource "aws_db_instance" "targeting" {
 
   tags = {
     Name    = "togglemaster-targeting-db"
-    Projeto = "MBA DevOps"
+    Projeto = "Pos DevOps"
     Servico = "Targeting"
   }
 }
@@ -191,7 +191,7 @@ resource "aws_elasticache_subnet_group" "main" {
 
   tags = {
     Name    = "togglemaster-redis-subnet-group"
-    Projeto = "MBA DevOps"
+    Projeto = "Pos DevOps"
   }
 }
 
@@ -221,7 +221,7 @@ resource "aws_elasticache_replication_group" "redis" {
 
   tags = {
     Name    = "togglemaster-redis"
-    Projeto = "MBA DevOps"
+    Projeto = "Pos DevOps"
   }
 }
 
@@ -241,7 +241,7 @@ resource "aws_dynamodb_table" "analytics" {
 
   tags = {
     Name    = "ToggleMasterAnalytics"
-    Projeto = "MBA DevOps"
+    Projeto = "Pos DevOps"
     Servico = "Analytics"
   }
 }
@@ -260,7 +260,7 @@ resource "aws_sqs_queue" "analytics" {
 
   tags = {
     Name    = "togglemaster-analytics"
-    Projeto = "MBA DevOps"
+    Projeto = "Pos DevOps"
     Servico = "Analytics"
   }
 }
@@ -295,7 +295,7 @@ resource "aws_ecr_repository" "services" {
 
   tags = {
     Name    = each.value
-    Projeto = "MBA DevOps"
+    Projeto = "Pos DevOps"
   }
 }
 
@@ -337,7 +337,7 @@ resource "aws_secretsmanager_secret" "auth_db" {
 
   tags = {
     Name    = "togglemaster-auth-db-secret"
-    Projeto = "MBA DevOps"
+    Projeto = "Pos DevOps"
     Servico = "Auth"
   }
 }
@@ -364,7 +364,7 @@ resource "aws_secretsmanager_secret" "flag_db" {
 
   tags = {
     Name    = "togglemaster-flag-db-secret"
-    Projeto = "MBA DevOps"
+    Projeto = "Pos DevOps"
     Servico = "Flag"
   }
 }
@@ -391,7 +391,7 @@ resource "aws_secretsmanager_secret" "targeting_db" {
 
   tags = {
     Name    = "togglemaster-targeting-db-secret"
-    Projeto = "MBA DevOps"
+    Projeto = "Pos DevOps"
     Servico = "Targeting"
   }
 }

@@ -2,6 +2,13 @@
 # terraform.tfvars esta no .gitignore e NAO deve ser commitado.
 
 # ---------------------------------------------------------------
+# Modo AWS Academy Learner Lab
+# ---------------------------------------------------------------
+# true  (padrao): usa a LabRole existente e nao cria recursos de IAM/OIDC.
+# false         : cria IAM Roles dedicadas, OIDC do GitHub e EKS Pod Identity.
+use_aws_academy = true
+
+# ---------------------------------------------------------------
 # Senhas dos bancos RDS
 # ---------------------------------------------------------------
 # Duas restricoes se somam aqui, e ignorar qualquer uma delas custa
@@ -24,19 +31,19 @@
 # Gerar uma de 28 caracteres (PowerShell):
 #   -join ((1..28) | % { "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.~"[(Get-Random -Max 65)] })
 
-auth_db_password      = "TROQUE-ME-auth-123"
-flag_db_password      = "TROQUE-ME-flag-123"
-targeting_db_password = "TROQUE-ME-targeting-123"
+auth_db_password      = "ToggleMasterAuth2026"
+flag_db_password      = "ToggleMasterFlag2026"
+targeting_db_password = "ToggleMasterTarget2026"
 
 # ---------------------------------------------------------------
-# Acesso ao cluster
+# Acesso ao cluster (apenas quando use_aws_academy = false)
 # ---------------------------------------------------------------
 # ARN do usuario IAM que roda o Terraform e usara o kubectl.
 # Descubra com: aws sts get-caller-identity --query Arn --output text
-eks_admin_principal_arn = "arn:aws:iam::SEU_ACCOUNT_ID:user/terraform-admin"
+# eks_admin_principal_arn = "arn:aws:iam::SEU_ACCOUNT_ID:user/terraform-admin"
 
 # ---------------------------------------------------------------
-# OIDC do GitHub Actions
+# OIDC do GitHub Actions (apenas quando use_aws_academy = false)
 # ---------------------------------------------------------------
 # Monorepo autorizado a assumir a role (ja tem default correto no
 # variables.tf). O par repo+branch E o controle de acesso: trocar por

@@ -1,0 +1,393 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: self-healing-sa
+  namespace: observability
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: self-healing-deployment-restarter
+  namespace: togglemaster
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: self-healing-deployment-restarter-binding
+  namespace: togglemaster
+subjects:
+  - kind: ServiceAccount
+    name: self-healing-sa
+    namespace: observability
+roleRef:
+  kind: Role
+  name: self-healing-deployment-restarter
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: self-healing-webhook-script
+  namespace: observability
+data:
+  webhook.py: |
+    import datetime
+    import json
+    import logging
+    import os
+    import ssl
+    import urllib.request
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - [Self-Healing] %(message)s",
+    )
+    log = logging.getLogger("self-healing")
+
+    ALLOWED_DEPLOYMENTS = {
+        "auth-service",
+        "flag-service",
+        "targeting-service",
+        "evaluation-service",
+        "analytics-service",
+    }
+
+    TARGET_NAMESPACE = os.getenv("TARGET_NAMESPACE", "togglemaster")
+    DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
+    PAGERDUTY_INTEGRATION_KEY = os.getenv("PAGERDUTY_INTEGRATION_KEY", "").strip()
+    GITHUB_DISPATCH_TOKEN = os.getenv("GITHUB_DISPATCH_TOKEN", "").strip()
+    GITHUB_REPOSITORY = os.getenv("GITHUB_REPOSITORY", "Miiskulin/tc4-togglemaster").strip()
+
+
+    def k8s_rollout_restart(deployment_name: str) -> tuple[bool, str]:
+        if deployment_name not in ALLOWED_DEPLOYMENTS:
+            return False, f"Deployment '{deployment_name}' nao pertence a lista permitida"
+
+        token_path = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+        ca_path = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+        if not os.path.exists(token_path):
+            return False, "ServiceAccount token nao encontrado no container"
+
+        with open(token_path, "r", encoding="utf-8") as f:
+            token = f.read().strip()
+
+        now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        patch_body = {
+            "spec": {
+                "template": {
+                    "metadata": {
+                        "annotations": {
+                            "kubectl.kubernetes.io/restartedAt": now_iso,
+                            "self-healing.togglemaster.io/lastHealedAt": now_iso,
+                        }
+                    }
+                }
+            }
+        }
+
+        k8s_host = os.getenv("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
+        k8s_port = os.getenv("KUBERNETES_SERVICE_PORT", "443")
+        url = (
+            f"https://{k8s_host}:{k8s_port}/apis/apps/v1/namespaces/"
+            f"{TARGET_NAMESPACE}/deployments/{deployment_name}"
+        )
+
+        data = json.dumps(patch_body).encode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=data,
+            method="PATCH",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/strategic-merge-patch+json",
+                "Accept": "application/json",
+            },
+        )
+
+        ctx = ssl.create_default_context(cafile=ca_path) if os.path.exists(ca_path) else ssl._create_unverified_context()
+        try:
+            with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
+                return (200 <= resp.status < 300), f"HTTP {resp.status} - restartedAt={now_iso}"
+        except Exception as exc:
+            log.error(f"Falha ao executar rollout restart em {deployment_name}: {exc}")
+            return False, str(exc)
+
+
+    def notify_discord(service_name: str, alert_name: str, success: bool, details: str) -> None:
+        if not DISCORD_WEBHOOK_URL or "REPLACE_WITH" in DISCORD_WEBHOOK_URL:
+            return
+        status_emoji = "OK" if success else "ERRO"
+        payload = {
+            "username": "ToggleMaster Self-Healing",
+            "embeds": [
+                {
+                    "title": f"[{status_emoji}] Self-Healing Executado: {service_name}",
+                    "color": 3066993 if success else 15158332,
+                    "fields": [
+                        {"name": "Alerta", "value": alert_name, "inline": True},
+                        {"name": "Deployment", "value": f"`{service_name}`", "inline": True},
+                        {"name": "Namespace", "value": f"`{TARGET_NAMESPACE}`", "inline": True},
+                        {
+                            "name": "Acao Executada",
+                            "value": f"`kubectl rollout restart deployment/{service_name} -n {TARGET_NAMESPACE}`",
+                            "inline": False,
+                        },
+                        {"name": "Resultado", "value": details, "inline": False},
+                    ],
+                }
+            ],
+        }
+        try:
+            req = urllib.request.Request(
+                DISCORD_WEBHOOK_URL,
+                data=json.dumps(payload).encode("utf-8"),
+                method="POST",
+                headers={"Content-Type": "application/json", "User-Agent": "ToggleMaster-SelfHealing/1.0"},
+            )
+            with urllib.request.urlopen(req, timeout=5):
+                pass
+        except Exception as exc:
+            log.warning(f"Aviso ao notificar Discord: {exc}")
+
+
+    def notify_pagerduty(service_name: str, alert_name: str, details: str) -> None:
+        if (
+            not PAGERDUTY_INTEGRATION_KEY
+            or "REPLACE_WITH" in PAGERDUTY_INTEGRATION_KEY
+            or "SUA_" in PAGERDUTY_INTEGRATION_KEY
+        ):
+            return
+        payload = {
+            "routing_key": PAGERDUTY_INTEGRATION_KEY,
+            "event_action": "trigger",
+            "dedup_key": f"togglemaster-{service_name}-{alert_name}",
+            "payload": {
+                "summary": f"[ToggleMaster] {alert_name} em {service_name} - Self-Healing acionado ({details})",
+                "source": f"eks:togglemaster:{service_name}",
+                "severity": "critical",
+                "component": service_name,
+                "group": "togglemaster",
+                "class": "disponibilidade",
+            },
+        }
+        try:
+            req = urllib.request.Request(
+                "https://events.pagerduty.com/v2/enqueue",
+                data=json.dumps(payload).encode("utf-8"),
+                method="POST",
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=5):
+                pass
+        except Exception as exc:
+            log.warning(f"Aviso ao acionar PagerDuty Events API v2: {exc}")
+
+
+    def trigger_github_dispatch(service_name: str, alert_name: str) -> None:
+        if not GITHUB_DISPATCH_TOKEN or "REPLACE_WITH" in GITHUB_DISPATCH_TOKEN or not GITHUB_REPOSITORY:
+            return
+        url = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/dispatches"
+        payload = {
+            "event_type": "self-heal",
+            "client_payload": {
+                "service": service_name,
+                "namespace": TARGET_NAMESPACE,
+                "alert": alert_name,
+                "origem": "self-healing-webhook",
+            },
+        }
+        try:
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode("utf-8"),
+                method="POST",
+                headers={
+                    "Authorization": f"Bearer {GITHUB_DISPATCH_TOKEN}",
+                    "Accept": "application/vnd.github+json",
+                    "Content-Type": "application/json",
+                    "User-Agent": "ToggleMaster-SelfHealing/1.0",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=5):
+                pass
+        except Exception as exc:
+            log.warning(f"Aviso ao disparar GitHub repository_dispatch: {exc}")
+
+
+    class WebhookHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/health":
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"status":"ok"}')
+                return
+            self.send_response(404)
+            self.end_headers()
+
+        def do_POST(self):
+            if self.path != "/webhook":
+                self.send_response(404)
+                self.end_headers()
+                return
+
+            length = int(self.headers.get("Content-Length", "0"))
+            raw_body = self.rfile.read(length).decode("utf-8") if length > 0 else "{}"
+            try:
+                payload = json.loads(raw_body)
+            except json.JSONDecodeError:
+                payload = {}
+
+            status = payload.get("status", "firing")
+            common_labels = payload.get("commonLabels") or {}
+            alerts = payload.get("alerts") or []
+
+            service_name = common_labels.get("servico") or common_labels.get("service") or ""
+            alert_name = common_labels.get("alertname", "Taxa de erro 5xx alta no evaluation-service")
+
+            if not service_name and alerts:
+                first_labels = alerts[0].get("labels") or {}
+                service_name = first_labels.get("servico") or first_labels.get("service") or ""
+                alert_name = first_labels.get("alertname", alert_name)
+
+            if not service_name:
+                client_payload = payload.get("client_payload") or {}
+                service_name = (
+                    payload.get("servico")
+                    or payload.get("service")
+                    or client_payload.get("service")
+                    or "evaluation-service"
+                )
+
+            log.info(f"Recebido webhook de alerta: status={status} alert={alert_name} service={service_name}")
+
+            if status == "resolved":
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"action":"ignored_resolved"}')
+                return
+
+            success, details = k8s_rollout_restart(service_name)
+            log.info(f"Resultado do Self-Healing para {service_name}: success={success} ({details})")
+
+            notify_pagerduty(service_name, alert_name, details)
+            notify_discord(service_name, alert_name, success, details)
+            trigger_github_dispatch(service_name, alert_name)
+
+            self.send_response(200 if success else 500)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            resp = {
+                "healed": success,
+                "service": service_name,
+                "namespace": TARGET_NAMESPACE,
+                "details": details,
+            }
+            self.wfile.write(json.dumps(resp).encode("utf-8"))
+
+
+    if __name__ == "__main__":
+        port = int(os.getenv("PORT", "8080"))
+        log.info(f"Iniciando Self-Healing Webhook na porta {port}...")
+        server = HTTPServer(("0.0.0.0", port), WebhookHandler)
+        server.serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: self-healing-webhook
+  namespace: observability
+  labels:
+    app: self-healing-webhook
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: self-healing-webhook
+  template:
+    metadata:
+      labels:
+        app: self-healing-webhook
+    spec:
+      serviceAccountName: self-healing-sa
+      containers:
+        - name: self-healing-webhook
+          image: python:3.11-slim
+          command: ["python", "/app/webhook.py"]
+          ports:
+            - containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+            - name: TARGET_NAMESPACE
+              value: "togglemaster"
+            - name: DISCORD_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-alerting-secrets
+                  key: DISCORD_WEBHOOK_URL
+                  optional: true
+            - name: PAGERDUTY_INTEGRATION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-alerting-secrets
+                  key: PAGERDUTY_INTEGRATION_KEY
+                  optional: true
+            - name: GITHUB_DISPATCH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-alerting-secrets
+                  key: GITHUB_DISPATCH_TOKEN
+                  optional: true
+            - name: GITHUB_REPOSITORY
+              value: "Miiskulin/tc4-togglemaster"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "25m"
+              memory: "48Mi"
+            limits:
+              memory: "128Mi"
+          volumeMounts:
+            - name: webhook-script
+              mountPath: /app
+      volumes:
+        - name: webhook-script
+          configMap:
+            name: self-healing-webhook-script
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: self-healing-webhook
+  namespace: observability
+  labels:
+    app: self-healing-webhook
+spec:
+  selector:
+    app: self-healing-webhook
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP

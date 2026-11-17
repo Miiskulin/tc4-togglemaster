@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 import json
 import logging
 import os
@@ -10,6 +11,21 @@ import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
 from dotenv import load_dotenv
 from flask import Flask, jsonify
+
+try:
+    from opentelemetry import propagate, trace
+    from opentelemetry.trace import SpanKind, Status, StatusCode
+
+    OTEL_AVAILABLE = True
+    tracer = trace.get_tracer(__name__)
+except ImportError:  # pragma: no cover
+    OTEL_AVAILABLE = False
+    propagate = None
+    trace = None
+    SpanKind = None
+    Status = None
+    StatusCode = None
+    tracer = None
 
 # Configura o logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -44,37 +60,80 @@ except (ClientError, ValueError) as e:
 
 # --- SQS Worker ---
 
+def _extract_sqs_carrier(message: dict, body: dict | None = None) -> dict[str, str]:
+    """Extrai atributos W3C Trace Context (traceparent/tracestate) da mensagem SQS."""
+    carrier: dict[str, str] = {}
+    msg_attrs = message.get("MessageAttributes") or {}
+    for key, attr in msg_attrs.items():
+        if isinstance(attr, dict) and attr.get("StringValue"):
+            carrier[key] = str(attr["StringValue"])
+    if "traceparent" not in carrier and isinstance(body, dict) and body.get("traceparent"):
+        carrier["traceparent"] = str(body["traceparent"])
+    return carrier
+
+
+@contextmanager
+def _sqs_consumer_span(message: dict, body: dict, carrier: dict[str, str]):
+    """Cria um span CONSUMER ligado ao traceparent propagado pelo evaluation-service."""
+    if not OTEL_AVAILABLE or tracer is None or propagate is None:
+        yield None
+        return
+
+    ctx = propagate.extract(carrier)
+    with tracer.start_as_current_span(
+        "togglemaster-analytics process",
+        context=ctx,
+        kind=SpanKind.CONSUMER,
+        attributes={
+            "messaging.system": "aws_sqs",
+            "messaging.operation": "process",
+            "messaging.destination.name": "togglemaster-analytics",
+            "messaging.message.id": str(message.get("MessageId", "")),
+            "togglemaster.flag_name": str(body.get("flag_name", "")),
+            "peer.service": "evaluation-service",
+        },
+    ) as span:
+        try:
+            yield span
+        except Exception as exc:
+            span.record_exception(exc)
+            span.set_status(Status(StatusCode.ERROR, str(exc)))
+            raise
+
+
 def process_message(message):
     """ Processa uma única mensagem SQS e a insere no DynamoDB """
     try:
         log.info(f"Processando mensagem ID: {message['MessageId']}")
         body = json.loads(message['Body'])
-        
-        # Gera um ID único para o item no DynamoDB
-        event_id = str(uuid.uuid4())
-        
-        # Constrói o item no formato do DynamoDB
-        item = {
-            'event_id': {'S': event_id},
-            'user_id': {'S': body['user_id']},
-            'flag_name': {'S': body['flag_name']},
-            'result': {'BOOL': body['result']},
-            'timestamp': {'S': body['timestamp']}
-        }
-        
-        # Insere no DynamoDB
-        dynamodb_client.put_item(
-            TableName=DYNAMODB_TABLE_NAME,
-            Item=item
-        )
-        
-        log.info(f"Evento {event_id} (Flag: {body['flag_name']}) salvo no DynamoDB.")
-        
-        # Se tudo deu certo, deleta a mensagem da fila
-        sqs_client.delete_message(
-            QueueUrl=SQS_QUEUE_URL,
-            ReceiptHandle=message['ReceiptHandle']
-        )
+        carrier = _extract_sqs_carrier(message, body)
+
+        with _sqs_consumer_span(message, body, carrier):
+            # Gera um ID único para o item no DynamoDB
+            event_id = str(uuid.uuid4())
+
+            # Constrói o item no formato do DynamoDB
+            item = {
+                'event_id': {'S': event_id},
+                'user_id': {'S': body['user_id']},
+                'flag_name': {'S': body['flag_name']},
+                'result': {'BOOL': body['result']},
+                'timestamp': {'S': body['timestamp']}
+            }
+
+            # Insere no DynamoDB
+            dynamodb_client.put_item(
+                TableName=DYNAMODB_TABLE_NAME,
+                Item=item
+            )
+
+            log.info(f"Evento {event_id} (Flag: {body['flag_name']}) salvo no DynamoDB.")
+
+            # Se tudo deu certo, deleta a mensagem da fila
+            sqs_client.delete_message(
+                QueueUrl=SQS_QUEUE_URL,
+                ReceiptHandle=message['ReceiptHandle']
+            )
         
     except json.JSONDecodeError:
         log.error(f"Erro ao decodificar JSON da mensagem ID: {message['MessageId']}")
@@ -95,7 +154,8 @@ def sqs_worker_loop():
             response = sqs_client.receive_message(
                 QueueUrl=SQS_QUEUE_URL,
                 MaxNumberOfMessages=10,  # Processa em lotes de até 10
-                WaitTimeSeconds=20
+                WaitTimeSeconds=20,
+                MessageAttributeNames=['All']
             )
             
             messages = response.get('Messages', [])

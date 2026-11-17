@@ -50,5 +50,5 @@ output "analytics_table_name" {
 
 output "github_actions_role_arn" {
   description = "ARN da IAM Role usada pelos pipelines do GitHub Actions"
-  value       = module.iam.github_actions_role_arn
+  value       = local.github_actions_role_arn
 }

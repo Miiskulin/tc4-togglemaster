@@ -117,3 +117,34 @@ def test_invalid_json_is_not_saved_or_deleted(app_module):
 
 def test_worker_is_not_started_during_tests(app_module):
     app_module._test_fake_thread.start.assert_called_once()
+
+
+def test_extract_sqs_carrier_reads_traceparent_from_message_attributes(app_module):
+    tp = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+    message = {
+        "MessageId": "message-trace",
+        "ReceiptHandle": "receipt-trace",
+        "MessageAttributes": {
+            "traceparent": {
+                "DataType": "String",
+                "StringValue": tp,
+            }
+        },
+        "Body": (
+            '{"user_id":"user-123",'
+            '"flag_name":"checkout-v2",'
+            '"result":true,'
+            '"timestamp":"2026-09-04T19:00:00Z"}'
+        ),
+    }
+
+    carrier = app_module._extract_sqs_carrier(message)
+    assert carrier == {"traceparent": tp}
+
+    app_module.process_message(message)
+    app_module._test_fake_dynamodb.put_item.assert_called_once()
+    app_module._test_fake_sqs.delete_message.assert_called_once_with(
+        QueueUrl=app_module.SQS_QUEUE_URL,
+        ReceiptHandle="receipt-trace",
+    )
+

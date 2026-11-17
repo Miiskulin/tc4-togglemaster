@@ -48,18 +48,27 @@ data:
             disableResolveMessage: false
 
       # ---------------------------------------------------------
-      # Self-healing
+      # Self-healing (In-Cluster K8s RBAC + GitHub Actions)
       # ---------------------------------------------------------
       - orgId: 1
         name: self-healing
         receivers:
+          # Receiver in-cluster: executa imediatamente o rollout restart
+          # no deployment via RBAC nativo do Kubernetes (funcionando
+          # tambem no AWS Academy Learner Lab sem depender de OIDC/IAM),
+          # e dispara em seguida o repository_dispatch do GitHub Actions
+          # quando GITHUB_DISPATCH_TOKEN estiver configurado.
+          - uid: incluster-self-healing
+            type: webhook
+            settings:
+              url: http://self-healing-webhook.observability.svc.cluster.local:8080/webhook
+              httpMethod: POST
+            disableResolveMessage: true
+
+          # Receiver direto para a API de repository_dispatch do GitHub.
           - uid: github-self-healing
             type: webhook
             settings:
-              # A API de repository_dispatch do GitHub exige um corpo
-              # com o campo event_type. O webhook do Grafana manda o
-              # formato dele por padrao, que o GitHub recusaria - por
-              # isso o payload customizado.
               url: https://api.github.com/repos/Miiskulin/tc4-togglemaster/dispatches
               httpMethod: POST
               authorization_scheme: Bearer

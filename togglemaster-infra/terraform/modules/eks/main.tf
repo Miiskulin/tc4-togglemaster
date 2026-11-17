@@ -5,11 +5,11 @@ resource "aws_eks_cluster" "main" {
   access_config {
     authentication_mode = "API_AND_CONFIG_MAP"
 
-    # Desligado de proposito: o acesso admin vem do aws_eks_access_entry.admin
-    # abaixo. Com o bootstrap ligado, a AWS cria sozinha um access entry para o
-    # criador do cluster e o recurso explicito falha com ResourceInUseException
-    # quando o criador e o mesmo principal informado em admin_principal_arn.
-    bootstrap_cluster_creator_admin_permissions = false
+    # No AWS Academy (use_aws_academy = true), habilita a permissao automatica
+    # de admin para o criador do cluster (voclabs/LabRole).
+    # Fora do AWS Academy (use_aws_academy = false), desliga o bootstrap para
+    # que o acesso admin venha do aws_eks_access_entry.admin sem conflito.
+    bootstrap_cluster_creator_admin_permissions = var.use_aws_academy
   }
 
   vpc_config {
@@ -21,7 +21,7 @@ resource "aws_eks_cluster" "main" {
 
   tags = {
     Name    = "togglemaster-eks"
-    Projeto = "MBA DevOps"
+    Projeto = "Pos DevOps"
   }
 }
 
@@ -30,6 +30,7 @@ resource "aws_eks_cluster" "main" {
 # ============================================================
 
 resource "aws_eks_access_entry" "admin" {
+  count         = (!var.use_aws_academy && var.admin_principal_arn != "") ? 1 : 0
   cluster_name  = aws_eks_cluster.main.name
   principal_arn = var.admin_principal_arn
   type          = "STANDARD"
@@ -40,6 +41,7 @@ resource "aws_eks_access_entry" "admin" {
 }
 
 resource "aws_eks_access_policy_association" "admin" {
+  count         = (!var.use_aws_academy && var.admin_principal_arn != "") ? 1 : 0
   cluster_name  = aws_eks_cluster.main.name
   principal_arn = var.admin_principal_arn
 
@@ -61,6 +63,7 @@ resource "aws_eks_access_policy_association" "admin" {
 # ============================================================
 
 resource "aws_eks_access_entry" "github_actions" {
+  count         = (!var.use_aws_academy && var.github_actions_role_arn != "") ? 1 : 0
   cluster_name  = aws_eks_cluster.main.name
   principal_arn = var.github_actions_role_arn
   type          = "STANDARD"
@@ -71,6 +74,7 @@ resource "aws_eks_access_entry" "github_actions" {
 }
 
 resource "aws_eks_access_policy_association" "github_actions" {
+  count         = (!var.use_aws_academy && var.github_actions_role_arn != "") ? 1 : 0
   cluster_name  = aws_eks_cluster.main.name
   principal_arn = var.github_actions_role_arn
 
@@ -87,6 +91,31 @@ resource "aws_eks_access_policy_association" "github_actions" {
 }
 
 # ============================================================
+# LAUNCH TEMPLATE PARA WORKER NODES
+# Hop Limit = 2 permite que os containers nos pods (db-init,
+# evaluation-service e analytics-service) alcancem o IMDSv2 e
+# herdem a LabRole do no no AWS Academy Learner Lab.
+# ============================================================
+
+resource "aws_launch_template" "eks_nodes" {
+  name_prefix = "togglemaster-eks-node-"
+
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 2
+  }
+
+  tag_specifications {
+    resource_type = "instance"
+    tags = {
+      Name    = "togglemaster-eks-worker"
+      Projeto = "Pos DevOps"
+    }
+  }
+}
+
+# ============================================================
 # EKS NODE GROUP
 # ============================================================
 
@@ -98,6 +127,11 @@ resource "aws_eks_node_group" "main" {
 
   capacity_type  = "ON_DEMAND"
   instance_types = ["t3.large"]
+
+  launch_template {
+    id      = aws_launch_template.eks_nodes.id
+    version = aws_launch_template.eks_nodes.latest_version
+  }
 
   scaling_config {
     desired_size = 2
@@ -122,7 +156,7 @@ resource "aws_eks_node_group" "main" {
 
   tags = {
     Name    = "togglemaster-node-group"
-    Projeto = "MBA DevOps"
+    Projeto = "Pos DevOps"
   }
 
   depends_on = [
@@ -132,9 +166,11 @@ resource "aws_eks_node_group" "main" {
 
 # ============================================================
 # EKS POD IDENTITY ASSOCIATIONS
+# Desativado no AWS Academy, pois os nos e pods usam LabRole.
 # ============================================================
 
 resource "aws_eks_pod_identity_association" "evaluation" {
+  count           = var.use_aws_academy ? 0 : 1
   cluster_name    = aws_eks_cluster.main.name
   namespace       = "togglemaster"
   service_account = "evaluation-service"
@@ -146,6 +182,7 @@ resource "aws_eks_pod_identity_association" "evaluation" {
 }
 
 resource "aws_eks_pod_identity_association" "analytics" {
+  count           = var.use_aws_academy ? 0 : 1
   cluster_name    = aws_eks_cluster.main.name
   namespace       = "togglemaster"
   service_account = "analytics-service"
@@ -157,6 +194,7 @@ resource "aws_eks_pod_identity_association" "analytics" {
 }
 
 resource "aws_eks_pod_identity_association" "db_init" {
+  count           = var.use_aws_academy ? 0 : 1
   cluster_name    = aws_eks_cluster.main.name
   namespace       = "togglemaster"
   service_account = "db-init"
@@ -172,6 +210,7 @@ resource "aws_eks_pod_identity_association" "db_init" {
 # ============================================================
 
 resource "aws_eks_addon" "pod_identity_agent" {
+  count        = var.use_aws_academy ? 0 : 1
   cluster_name = aws_eks_cluster.main.name
   addon_name   = "eks-pod-identity-agent"
 

@@ -7,7 +7,7 @@ spec:
   project: default
 
   source:
-    repoURL: git@github.com:Miiskulin/tc4-togglemaster.git
+    repoURL: https://github.com/Miiskulin/tc4-togglemaster.git
     targetRevision: main
     path: togglemaster-gitops/apps/togglemaster
 
@@ -15,9 +15,18 @@ spec:
     server: https://kubernetes.default.svc
     namespace: togglemaster
 
+  # Ignora a diferenca entre o Account ID / endpoints dinamicos do
+  # AWS Academy Learner Lab aplicados no cluster e os valores estaticos
+  # do repositorio Git remoto, mantendo Synced + Healthy sem sobrescrever
+  # a imagem do ECR da sessao atual mesmo ao clicar em SYNC.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/template/spec/containers/0/image
+        - /spec/template/spec/containers/0/env
+
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
+      - RespectIgnoreDifferences=true

@@ -95,7 +95,7 @@ resource "aws_iam_role" "evaluation_workload" {
 
   tags = {
     Name    = "togglemaster-evaluation-workload"
-    Projeto = "MBA DevOps"
+    Projeto = "Pos DevOps"
     Servico = "Evaluation"
   }
 }
@@ -129,7 +129,7 @@ resource "aws_iam_role" "analytics_workload" {
 
   tags = {
     Name    = "togglemaster-analytics-workload"
-    Projeto = "MBA DevOps"
+    Projeto = "Pos DevOps"
     Servico = "Analytics"
   }
 }
@@ -233,7 +233,7 @@ resource "aws_iam_role" "db_init_workload" {
 
   tags = {
     Name    = "togglemaster-db-init-workload"
-    Projeto = "MBA DevOps"
+    Projeto = "Pos DevOps"
     Servico = "Database Initialization"
   }
 }

@@ -86,6 +86,9 @@ jobs:
     needs: ci
     if: github.event_name != 'pull_request'
 
+    outputs:
+      ecr_registry: ${{ steps.login-ecr.outputs.registry }}
+
     permissions:
       contents: read
       id-token: write
@@ -98,12 +101,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Configure AWS credentials (AWS Academy Session)
+        if: ${{ secrets.AWS_ACCESS_KEY_ID != '' }}
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
       # Sem chave de acesso: a role e assumida via OIDC, e a trust
       # policy so aceita este repositorio nesta branch.
       - name: Configure AWS credentials with OIDC
+        if: ${{ secrets.AWS_ACCESS_KEY_ID == '' }}
         uses: aws-actions/configure-aws-credentials@v6
         with:
-          role-to-assume: arn:aws:iam::199584041184:role/togglemaster-github-actions-role
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME || 'arn:aws:iam::199584041184:role/togglemaster-github-actions-role' }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
@@ -141,20 +154,21 @@ jobs:
 
       - name: Update image tag
         env:
+          ECR_REGISTRY: ${{ needs.publish.outputs.ecr_registry }}
           IMAGE_TAG: ${{ github.sha }}
           MANIFEST: togglemaster-gitops/apps/togglemaster/analytics.yaml
         run: |
           set -euo pipefail
 
-          antes=$(grep -c "199584041184.dkr.ecr.us-east-1.amazonaws.com/togglemaster-analytics:" "$MANIFEST" || true)
+          antes=$(grep -E -c "[0-9]{12}\.dkr\.ecr\.us-east-1\.amazonaws\.com/togglemaster-analytics:" "$MANIFEST" || true)
           if [ "$antes" -ne 1 ]; then
             echo "Esperava 1 referencia de imagem em $MANIFEST, achei $antes"
             exit 1
           fi
 
-          sed -i -E "s|(199584041184.dkr.ecr.us-east-1.amazonaws.com/togglemaster-analytics):[^[:space:]\"']+|\1:$IMAGE_TAG|" "$MANIFEST"
+          sed -i -E "s|[0-9]{12}\.dkr\.ecr\.us-east-1\.amazonaws\.com/(togglemaster-analytics):[^[:space:]\"']+|$ECR_REGISTRY/\1:$IMAGE_TAG|" "$MANIFEST"
 
-          grep -q "199584041184.dkr.ecr.us-east-1.amazonaws.com/togglemaster-analytics:$IMAGE_TAG" "$MANIFEST"             || { echo "A substituicao nao aplicou"; exit 1; }
+          grep -q "$ECR_REGISTRY/togglemaster-analytics:$IMAGE_TAG" "$MANIFEST" || { echo "A substituicao nao aplicou"; exit 1; }
 
       - name: Commit and push
         env:
